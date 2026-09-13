@@ -120,7 +120,7 @@ export async function finishBuildRecord(record: LocalBuildRecord, file: string):
   await saveRecord(`${file}.build.json`, record);
 }
 
-async function uploadArtifact(file: string, log?: PhaseLogger): Promise<string> {
+async function uploadArtifact(file: string, serverUrl: string, log?: PhaseLogger): Promise<string> {
   const record: LocalBuildRecord = await fs.readJson(`${file}.build.json`);
   if (
     record.schemaVersion !== 1 ||
@@ -142,6 +142,17 @@ async function uploadArtifact(file: string, log?: PhaseLogger): Promise<string> 
   ) {
     throw new Error('Invalid server address in build metadata.');
   }
+  // The caller selects this URL from config/flags, never from persisted metadata.
+  const server = new URL(serverUrl);
+  const serverPath = server.pathname.replace(/\/+$/, '');
+  if (
+    endpoint.origin !== server.origin ||
+    (endpoint.pathname !== serverPath && !endpoint.pathname.startsWith(`${serverPath}/`))
+  ) {
+    throw new Error(
+      'The server address in build metadata does not match the selected server. Check your config or --serverUrl.'
+    );
+  }
   const size = (await fs.stat(file)).size;
   const sha256 = Buffer.from((await digestFile(file)).hash, 'base64url').toString('hex');
   if (size !== record.size || sha256 !== record.sha256) {
@@ -149,7 +160,7 @@ async function uploadArtifact(file: string, log?: PhaseLogger): Promise<string> 
       'The artifact changed since compilation; refusing to upload it under the original build ID.'
     );
   }
-  const url = `${record.endpoint}/artifacts/${record.id}`;
+  const url = `${endpoint.href.replace(/\/+$/, '')}/artifacts/${record.id}`;
   const registration = await request<{
     build: { id: string; status: string };
     upload?: { url: string; method: string; headers?: Record<string, string> };
@@ -213,10 +224,14 @@ async function uploadArtifact(file: string, log?: PhaseLogger): Promise<string> 
   return record.id;
 }
 
-export async function uploadBuildArtifact(file: string, log?: BuildLog): Promise<string> {
+export async function uploadBuildArtifact(
+  file: string,
+  serverUrl: string,
+  log?: BuildLog
+): Promise<string> {
   return log
     ? await log.runBuildPhase(BuildPhase.UPLOAD_APPLICATION_ARCHIVE, phaseLog =>
-        uploadArtifact(file, phaseLog)
+        uploadArtifact(file, serverUrl, phaseLog)
       )
-    : await uploadArtifact(file);
+    : await uploadArtifact(file, serverUrl);
 }

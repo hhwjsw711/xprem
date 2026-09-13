@@ -281,7 +281,7 @@ async function buildInWorkspace(
     throw error;
   }
   try {
-    await uploadBuildArtifact(output, buildLog);
+    await uploadBuildArtifact(output, build.endpoint, buildLog);
   } catch (error) {
     await failBuildRecord(record, build.output).catch(() => {
       buildLog.warn('Could not report the failed upload to the server.');

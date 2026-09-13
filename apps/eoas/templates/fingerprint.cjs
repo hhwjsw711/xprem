@@ -16,9 +16,10 @@ async function main() {
   });
 }
 
-main().catch(() => {
+main().catch(error => {
   process.stderr.write(
-    'Could not compute the Expo fingerprint. Check the project configuration and installed dependencies.\n'
+    'Could not compute the Expo fingerprint. Check the project configuration and installed dependencies.\n' +
+      `${error instanceof Error ? error.stack || error.message : String(error)}\n`
   );
   process.exitCode = 1;
 });

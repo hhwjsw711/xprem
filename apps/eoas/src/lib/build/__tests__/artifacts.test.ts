@@ -3,10 +3,11 @@ import fs from 'fs-extra';
 import http from 'http';
 import os from 'os';
 import path from 'path';
-import { afterEach, beforeEach, expect, it } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
 import { startBuildRecord, uploadBuildArtifact } from '../artifacts';
 import { BuildInputs, selectProfile } from '../prepare';
+import * as buildServer from '../server';
 
 let directory: string;
 let server: http.Server;
@@ -90,6 +91,7 @@ beforeEach(async () => {
   endpoint = `http://127.0.0.1:${(server.address() as import('net').AddressInfo).port}`;
 });
 afterEach(async () => {
+  vi.restoreAllMocks();
   await new Promise<void>(resolve =>
     server.close(() => {
       resolve();
@@ -118,7 +120,7 @@ async function artifact(): Promise<string> {
 }
 it('streams the artifact with only upload headers and finalizes the same build ID', async () => {
   const file = await artifact();
-  await uploadBuildArtifact(file);
+  await uploadBuildArtifact(file, endpoint);
   expect(uploaded.toString()).toBe('signed APK bytes');
   expect(headers.authorization).toBeUndefined();
   expect(headers['x-ms-blob-type']).toBe('BlockBlob');
@@ -196,18 +198,69 @@ it('refuses to build against a server without the build registry', async () => {
 it('retries using persisted metadata and ID without allocating a number or rebuilding', async () => {
   const file = await artifact();
   failFinalize = true;
-  await expect(uploadBuildArtifact(file)).rejects.toThrow(/HTTP 503/);
+  await expect(uploadBuildArtifact(file, endpoint)).rejects.toThrow(/HTTP 503/);
   failFinalize = false;
-  await uploadBuildArtifact(file);
+  await uploadBuildArtifact(file, endpoint);
   expect(registrations[0]).toBe(registrations[1]);
   expect(requests.some(url => url.includes('build-number'))).toBe(false);
   requests = [];
-  await uploadBuildArtifact(file);
+  await uploadBuildArtifact(file, endpoint);
   expect(requests).toEqual([`/artifacts/${id}`]);
 });
 it('refuses an artifact modified after compilation before any request', async () => {
   const file = await artifact();
   await fs.writeFile(file, 'different bytes!');
-  await expect(uploadBuildArtifact(file)).rejects.toThrow(/changed/);
+  await expect(uploadBuildArtifact(file, endpoint)).rejects.toThrow(/changed/);
   expect(requests).toEqual([]);
+});
+
+it.each(['https://trusted.example.com', 'http://127.0.0.1:1', 'https://127.0.0.1'])(
+  'rejects a metadata endpoint outside the selected server %s before any request',
+  async selected => {
+    const file = await artifact();
+    const persisted = await fs.readFile(`${file}.build.json`, 'utf8');
+    await expect(uploadBuildArtifact(file, selected)).rejects.toThrow(/does not match/);
+    expect(requests).toEqual([]);
+    expect(await fs.readFile(`${file}.build.json`, 'utf8')).toBe(persisted);
+  }
+);
+
+it.each(['/other/app/build/identifier', '/ota-evil/app/build/identifier', '/ota/../other'])(
+  'rejects a metadata endpoint outside the configured path prefix: %s',
+  async pathname => {
+    const file = await artifact();
+    const record = await fs.readJson(`${file}.build.json`);
+    await fs.writeJson(`${file}.build.json`, { ...record, endpoint: `${endpoint}${pathname}` });
+    await expect(uploadBuildArtifact(file, `${endpoint}/ota`)).rejects.toThrow(/does not match/);
+    expect(requests).toEqual([]);
+  }
+);
+
+it('uploads an identifier-scoped endpoint under the selected HTTP server path', async () => {
+  const file = await artifact();
+  const record = await fs.readJson(`${file}.build.json`);
+  const buildPath = `/ota/app/build/${id}`;
+  await fs.writeJson(`${file}.build.json`, { ...record, endpoint: `${endpoint}${buildPath}` });
+  await uploadBuildArtifact(file, `${endpoint}/ota/`);
+  expect(requests).toEqual([
+    `${buildPath}/artifacts/${id}`,
+    '/upload/sensitive-token',
+    `${buildPath}/artifacts/${id}/complete`,
+  ]);
+});
+
+it('allows a configured non-loopback HTTP server', async () => {
+  const file = await artifact();
+  const record = await fs.readJson(`${file}.build.json`);
+  const selected = 'http://build.example.com/ota';
+  const buildEndpoint = `${selected}/app/build/${id}`;
+  await fs.writeJson(`${file}.build.json`, { ...record, endpoint: buildEndpoint });
+  const request = vi.spyOn(buildServer, 'request').mockResolvedValue({
+    build: { id, status: 'ready' },
+  });
+  await expect(uploadBuildArtifact(file, selected)).resolves.toBe(id);
+  expect(request).toHaveBeenCalledWith(
+    `${buildEndpoint}/artifacts/${id}`,
+    expect.objectContaining({ method: 'PUT', retry: false })
+  );
 });
