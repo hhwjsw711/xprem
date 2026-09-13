@@ -7,6 +7,7 @@ import (
 	"log"
 	"sync"
 	"time"
+	"unicode/utf8"
 	"xprem/internal/bucket"
 	"xprem/internal/database"
 	"xprem/internal/database/postgres/pgdb"
@@ -189,7 +190,11 @@ func buildOutboxBackoff(attempts int32) time.Duration {
 func truncateError(err error) string {
 	message := err.Error()
 	if len(message) > 1000 {
-		return message[:1000]
+		end := 1000
+		for end > 0 && !utf8.RuneStart(message[end]) {
+			end--
+		}
+		return message[:end]
 	}
 	return message
 }

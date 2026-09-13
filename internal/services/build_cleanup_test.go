@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 	"xprem/internal/bucket"
 	"xprem/internal/database/postgres"
 	"xprem/internal/database/postgres/pgtest"
@@ -192,7 +194,8 @@ func TestBuildCleanupRetriesFailedDeletesWithBackoff(t *testing.T) {
 	fixture := insertCleanupFixture(t, pool)
 	ref := fixture.insertBuild(t, pool, "ready", 0)
 	final, staging := keysOf(t, ref)
-	deleter.failOn[staging] = errors.New("storage unavailable")
+	// The "staging: " prefix puts the first byte of é at the truncation limit.
+	deleter.failOn[staging] = errors.New(strings.Repeat("a", 990) + "é")
 	_, err := pool.Exec(ctx, "DELETE FROM builds WHERE id = $1", ref.BuildID)
 	require.NoError(t, err)
 	makeDue(t, pool, ref.BuildID)
@@ -205,7 +208,8 @@ func TestBuildCleanupRetriesFailedDeletesWithBackoff(t *testing.T) {
 	var dueIn pgtype.Interval
 	require.NoError(t, pool.QueryRow(ctx, "SELECT attempts, last_error, due_at - now() FROM build_artifact_cleanup WHERE build_id = $1", ref.BuildID).Scan(&attempts, &lastError, &dueIn))
 	require.Equal(t, 1, attempts)
-	require.Contains(t, lastError, "storage unavailable")
+	require.Equal(t, "staging: "+strings.Repeat("a", 990), lastError)
+	require.True(t, utf8.ValidString(lastError))
 	require.Greater(t, duration(dueIn), 30*time.Second)
 	require.Equal(t, []string{final}, deleter.keys(), "the final object was still removed on the failed attempt")
 
@@ -330,6 +334,70 @@ func TestBuildCleanupStartStopsCleanly(t *testing.T) {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("stop did not return")
+	}
+}
+
+func TestBuildCleanupBatchLimits(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		outbox        bool
+		limit         int
+		deletesPerRow int
+	}{
+		{name: "outbox", outbox: true, limit: 4, deletesPerRow: 2},
+		{name: "staging", limit: 9, deletesPerRow: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pool, deleter, cleanup := setupBuildCleanup(t)
+			ctx := context.Background()
+			fixture := insertCleanupFixture(t, pool)
+			for i := 0; i < tc.limit+1; i++ {
+				ref := fixture.insertBuild(t, pool, "ready", 25*time.Hour)
+				if tc.outbox {
+					_, err := pool.Exec(ctx, "DELETE FROM builds WHERE id = $1", ref.BuildID)
+					require.NoError(t, err)
+					makeDue(t, pool, ref.BuildID)
+				}
+			}
+			run := cleanup.SweepStaging
+			if tc.outbox {
+				run = cleanup.DrainOutbox
+			}
+			count, err := run(ctx)
+			require.NoError(t, err)
+			require.Equal(t, tc.limit, count)
+			require.Len(t, deleter.keys(), tc.limit*tc.deletesPerRow)
+			count, err = run(ctx)
+			require.NoError(t, err)
+			require.Equal(t, 1, count, "the next batch handles only the remaining build")
+			count, err = run(ctx)
+			require.NoError(t, err)
+			require.Zero(t, count, "completed work is committed and not selected again")
+		})
+	}
+}
+
+func TestTruncateErrorPreservesUTF8(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		message string
+		want    string
+	}{
+		{name: "empty"},
+		{name: "short unicode", message: "échec 🧹", want: "échec 🧹"},
+		{name: "exact limit", message: strings.Repeat("é", 500), want: strings.Repeat("é", 500)},
+		{name: "ASCII", message: strings.Repeat("a", 1001), want: strings.Repeat("a", 1000)},
+		{name: "two bytes", message: strings.Repeat("a", 999) + "é", want: strings.Repeat("a", 999)},
+		{name: "three bytes", message: strings.Repeat("a", 998) + "€", want: strings.Repeat("a", 998)},
+		{name: "four bytes", message: strings.Repeat("a", 997) + "🧹", want: strings.Repeat("a", 997)},
+		{name: "complete rune at limit", message: strings.Repeat("a", 998) + "éx", want: strings.Repeat("a", 998) + "é"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := truncateError(errors.New(tc.message))
+			require.True(t, utf8.ValidString(got))
+			require.LessOrEqual(t, len(got), 1000)
+			require.Equal(t, tc.want, got)
+		})
 	}
 }
 
