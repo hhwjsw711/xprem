@@ -493,7 +493,7 @@ func TestWriteToolAnnotations(t *testing.T) {
 		}
 	}
 	// Every read tool declares itself read-only.
-	for _, name := range []string{"whoami", "get_apps", "get_branches", "get_runtime_versions", "get_channels", "get_channel_rollouts", "get_updates", "get_update_rollout", "get_certificate", "get_server_config"} {
+	for _, name := range []string{"whoami", "get_apps", "get_branches", "get_runtime_versions", "get_channels", "get_channel_rollouts", "get_updates", "get_update_rollout", "get_certificate", "get_server_config", "get_builds", "get_build", "get_build_logs", "get_build_download_url"} {
 		annotations, ok := tools[name]
 		if !ok {
 			t.Fatalf("%s is not registered", name)

@@ -111,6 +111,7 @@ type Deps struct {
 	BranchWriter   BranchWriter
 	ChannelWriter  ChannelWriter
 	Deployments    DeploymentWriter
+	Builds         BuildReader
 	// SSOEnabled reports whether enterprise SSO is active; get_server_config
 	// surfaces it.
 	SSOEnabled func(ctx context.Context) bool
@@ -145,6 +146,10 @@ var registrations = []struct {
 	{register: registerGetUpdatePatches},
 	{register: registerGetCertificate, access: &certificateAccess},
 	{register: registerGetServerConfig},
+	{register: registerGetBuilds, access: &buildReadAccess},
+	{register: registerGetBuild, access: &buildReadAccess},
+	{register: registerGetBuildLogs, access: &buildReadAccess},
+	{register: registerGetBuildDownloadURL, access: &buildDownloadAccess},
 	{register: registerCreateBranch, access: &branchCreateAccess},
 	{register: registerDeleteBranch, access: &branchDeleteAccess},
 	{register: registerCreateChannel, access: &channelCreateAccess},
