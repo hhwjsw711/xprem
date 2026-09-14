@@ -460,9 +460,6 @@ func (s *BuildService) DownloadURL(ctx context.Context, record types.BuildRecord
 	if shareExpiresAt.Before(expiresAt) {
 		expiresAt = shareExpiresAt
 	}
-	if !expiresAt.After(now) {
-		return "", bucket.ErrBuildDownloadExpired
-	}
 	return s.storage.RequestBuildArtifactDownloadURL(ctx, artifactRef(record), expiresAt)
 }
 
