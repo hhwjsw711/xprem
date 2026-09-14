@@ -4,12 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"html/template"
 	"io"
 	"net/http"
 	"strconv"
-	"strings"
-	"time"
 	"xprem/config"
 	"xprem/internal/bucket"
 	"xprem/internal/services"
@@ -216,29 +213,21 @@ func (h *BuildRegistryHandler) RevokeShare(w http.ResponseWriter, r *http.Reques
 	w.WriteHeader(http.StatusNoContent)
 }
 
-var buildInstallPage = template.Must(template.New("install").Parse(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Install Android app</title><style>body{font:16px system-ui;background:#f6f7f9;color:#17212b;max-width:480px;margin:12vh auto;padding:24px}main{background:white;border:1px solid #ddd;border-radius:16px;padding:32px}a{display:block;text-align:center;background:#17212b;color:white;padding:14px;border-radius:8px;text-decoration:none}small{color:#536171}</style><main><h1>Install Android app</h1><p>{{.ApplicationID}}</p><p>Version {{.Version}} ({{.BuildNumber}}) · {{.Size}} MB</p><p><small>Link expires {{.ExpiresAt}}</small></p><a href="{{.Download}}">Download APK</a><p><small>Open the downloaded APK on Android. Your device may ask you to allow installation from this source.</small></p></main></html>`))
-
 func (h *BuildRegistryHandler) PublicShare(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("X-Robots-Tag", "noindex, nofollow")
 	token := mux.Vars(r)["TOKEN"]
-	b, expiry, err := h.service.ResolveShare(r.Context(), token)
+	b, _, err := h.service.ResolveShare(r.Context(), token)
 	var missing *store.ErrResourceNotFound
 	switch {
 	case errors.As(err, &missing), errors.Is(err, store.ErrNotSupportedInStatelessMode):
-		http.Error(w, "This sharing link has expired, was revoked, or does not exist.", http.StatusGone)
+		http.Error(w, "Expired link", http.StatusBadRequest)
 		return
 	case err != nil:
 		http.Error(w, "Could not resolve this sharing link.", http.StatusInternalServerError)
 		return
 	}
-	if strings.HasSuffix(r.URL.Path, "/download") {
-		h.download(w, r, *b)
-		return
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'")
-	_ = buildInstallPage.Execute(w, map[string]string{"ApplicationID": b.ApplicationID, "Version": b.Metadata.Version, "BuildNumber": b.Metadata.BuildNumber, "Size": fmt.Sprintf("%.1f", float64(b.Size)/(1<<20)), "ExpiresAt": expiry.UTC().Format(time.RFC1123), "Download": token + "/download"})
+	h.download(w, r, *b)
 }

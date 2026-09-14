@@ -137,7 +137,7 @@ func (r *registryRepo) ResolveShare(_ context.Context, hash string) (*types.Buil
 		return nil, time.Time{}, r.err
 	}
 	share, ok := r.shares[hash]
-	if !ok {
+	if !ok || share.RevokedAt != nil || !share.ExpiresAt.After(time.Now()) {
 		return nil, time.Time{}, &store.ErrResourceNotFound{Resource: "share", Identifier: "link"}
 	}
 	record := r.builds[registryBuild]
@@ -169,7 +169,6 @@ func newRegistryFixture(t *testing.T) *registryFixture {
 	router.HandleFunc("/{APP_ID}/build/{IDENTIFIER_ID}/artifacts/{BUILD_ID}/complete", authorized(handler.Complete)).Methods(http.MethodPost)
 	router.HandleFunc("/{APP_ID}/build/{IDENTIFIER_ID}/artifacts/{BUILD_ID}/upload", authorized(handler.UploadLocal)).Methods(http.MethodPut)
 	router.HandleFunc("/build-shares/{TOKEN}", handler.PublicShare).Methods(http.MethodGet)
-	router.HandleFunc("/build-shares/{TOKEN}/download", handler.PublicShare).Methods(http.MethodGet)
 	router.HandleFunc("/api/app/{APP_ID}/builds", handler.List).Methods(http.MethodGet)
 	router.HandleFunc("/api/app/{APP_ID}/builds/{BUILD_ID}", handler.Get).Methods(http.MethodGet)
 	router.HandleFunc("/api/app/{APP_ID}/builds/{BUILD_ID}/download", handler.Download).Methods(http.MethodGet)
@@ -419,18 +418,33 @@ func TestBuildRegistryShareLinks(t *testing.T) {
 
 	w = f.do(http.MethodGet, "/build-shares/"+shareToken, "")
 	require.Equal(t, http.StatusOK, w.Code)
-	require.Equal(t, "no-store", w.Header().Get("Cache-Control"))
+	require.Equal(t, "private, no-store", w.Header().Get("Cache-Control"))
 	require.Equal(t, "noindex, nofollow", w.Header().Get("X-Robots-Tag"))
-	require.Contains(t, w.Body.String(), "com.example.app")
-	require.Contains(t, w.Body.String(), `href="`+shareToken+`/download"`, "relative so the link survives a BASE_URL sub-path")
-	w = f.do(http.MethodGet, "/build-shares/"+shareToken+"/download", "")
-	require.Equal(t, http.StatusOK, w.Code)
 	require.Equal(t, content, w.Body.Bytes())
+	require.Equal(t, "application/vnd.android.package-archive", w.Header().Get("Content-Type"))
+	require.Equal(t, `attachment; filename="`+registryBuild+`.apk"`, w.Header().Get("Content-Disposition"))
 	require.Equal(t, "no-referrer", w.Header().Get("Referrer-Policy"))
 
 	for _, bad := range []string{"short", strings.Repeat("0", 64), strings.ToUpper(shareToken)} {
 		w = f.do(http.MethodGet, "/build-shares/"+bad, "")
-		require.Equal(t, http.StatusGone, w.Code, bad)
+		require.Equal(t, http.StatusBadRequest, w.Code, bad)
+		require.Equal(t, "Expired link\n", w.Body.String())
+		require.Equal(t, "text/plain; charset=utf-8", w.Header().Get("Content-Type"))
+	}
+	for _, state := range []string{"expired", "revoked"} {
+		share := created.Share
+		past := time.Now().Add(-time.Minute)
+		if state == "expired" {
+			share.ExpiresAt = past
+		} else {
+			share.RevokedAt = &past
+		}
+		hash := sha256.Sum256([]byte(shareToken))
+		f.repo.shares[hex.EncodeToString(hash[:])] = share
+		w = f.do(http.MethodGet, "/build-shares/"+shareToken, "")
+		require.Equal(t, http.StatusBadRequest, w.Code, state)
+		require.Equal(t, "Expired link\n", w.Body.String())
+		require.Equal(t, "text/plain; charset=utf-8", w.Header().Get("Content-Type"))
 	}
 	f.repo.err = errors.New("database down")
 	w = f.do(http.MethodGet, "/build-shares/"+shareToken, "")
