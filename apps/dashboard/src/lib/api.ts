@@ -229,17 +229,17 @@ export type BuildMetadata = {
   environment?: string;
   channel?: string;
   version?: string;
-  buildNumber: string;
+  buildNumber?: string;
   runtimeVersion?: string;
-  fingerprint: string;
+  fingerprint?: string;
   expoSdk?: string;
   cliVersion: string;
   gitCommit?: string;
   gitMessage?: string;
   gitDirty?: boolean;
   startedAt: string;
-  finishedAt: string;
-  durationMs: number;
+  finishedAt?: string;
+  durationMs?: number;
 };
 
 export type BuildStatus = 'building' | 'uploading' | 'ready' | 'failed';
