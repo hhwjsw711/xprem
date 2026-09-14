@@ -103,7 +103,7 @@ export const BuildsTable = ({ builds, loading }: { builds: BuildRecord[]; loadin
                           title={formatTimestamp(build.createdAt, true) ?? undefined}>
                           {formatCompactTimestamp(build.createdAt)}
                         </time>
-                        {duration > 0 && (
+                        {duration !== undefined && duration > 0 && (
                           <span
                             className="inline-flex items-center gap-1.5 whitespace-nowrap"
                             title={building ? 'Elapsed build time' : 'Build duration'}>

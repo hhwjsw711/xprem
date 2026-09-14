@@ -277,7 +277,9 @@ export const BuildDetail = () => {
           {metadata.expoSdk && <DetailRow label="Expo SDK">{metadata.expoSdk}</DetailRow>}
           <DetailRow label="Command line version">{metadata.cliVersion}</DetailRow>
           <DetailRow label="Duration">
-            {build.status === 'building' ? '—' : formatDuration(metadata.durationMs)}
+            {build.status === 'building' || metadata.durationMs === undefined
+              ? '—'
+              : formatDuration(metadata.durationMs)}
           </DetailRow>
           <DetailRow label="Started">{formatTimestamp(metadata.startedAt, true) ?? '—'}</DetailRow>
           <DetailRow label="Finished">
