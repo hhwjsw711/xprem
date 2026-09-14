@@ -7,7 +7,6 @@ import (
 	"html/template"
 	"io"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -45,19 +44,6 @@ func renderBuildRegistryError(w http.ResponseWriter, err error) {
 	default:
 		RenderError(w, http.StatusInternalServerError, "Could not process the build request.")
 	}
-}
-
-// publicBuildURL appends route to BASE_URL, keeping any sub-path it is served from.
-func publicBuildURL(route string) (string, error) {
-	base, err := url.Parse(strings.TrimRight(config.GetEnv("BASE_URL"), "/"))
-	if err != nil || base.Host == "" || (base.Scheme != "https" && base.Scheme != "http") || base.User != nil {
-		return "", fmt.Errorf("invalid BASE_URL")
-	}
-	base.Path = strings.TrimRight(base.Path, "/") + route
-	base.RawPath = ""
-	base.RawQuery = ""
-	base.Fragment = ""
-	return base.String(), nil
 }
 
 func decodeBuildBody(w http.ResponseWriter, r *http.Request, target any) bool {
@@ -204,22 +190,13 @@ func (h *BuildRegistryHandler) CreateShare(w http.ResponseWriter, r *http.Reques
 		RenderError(w, http.StatusBadRequest, "Invalid share expiration.")
 		return
 	}
-	if _, err := publicBuildURL("/build-shares/"); err != nil {
-		renderBuildRegistryError(w, err)
-		return
-	}
 	share, token, err := h.service.CreateShare(r.Context(), mux.Vars(r)["APP_ID"], mux.Vars(r)["BUILD_ID"], input.ExpiresInHours)
 	if err != nil {
 		renderBuildRegistryError(w, err)
 		return
 	}
-	link, err := publicBuildURL("/build-shares/" + token)
-	if err != nil {
-		renderBuildRegistryError(w, err)
-		return
-	}
 	w.Header().Set("Cache-Control", "no-store")
-	RenderJSON(w, http.StatusCreated, map[string]any{"share": share, "url": link})
+	RenderJSON(w, http.StatusCreated, map[string]any{"share": share, "url": config.BaseURL() + "/build-shares/" + token})
 }
 
 func (h *BuildRegistryHandler) ListShares(w http.ResponseWriter, r *http.Request) {

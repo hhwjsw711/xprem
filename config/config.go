@@ -198,6 +198,9 @@ func LoadConfig() {
 	if !validateBaseUrl(baseUrl) {
 		log.Fatalf("Invalid BASE_URL: %s", baseUrl)
 	}
+	if !strings.HasPrefix(baseUrl, "https://") {
+		log.Printf("BASE_URL is not https; install links and upload URLs will be served over an unencrypted connection")
+	}
 	jwtSecret := GetEnv("JWT_SECRET")
 	if jwtSecret == "" {
 		log.Fatalf("JWT_SECRET not set")

@@ -388,20 +388,6 @@ func TestBuildRegistryUsesAuthorizedIdentifierNotPath(t *testing.T) {
 	require.Equal(t, types.BuildStatusBuilding, f.repo.builds[registryBuild].Status)
 }
 
-func TestBuildRegistryPublicURLRequiresValidBaseURL(t *testing.T) {
-	for _, base := range []string{"not a url", "ftp://ota.example.com", "https://user:secret@ota.example.com", "/relative"} {
-		t.Run(base, func(t *testing.T) {
-			f := newRegistryFixture(t)
-			t.Setenv("BASE_URL", base)
-			startedAt := time.Now().Add(-time.Minute).UTC()
-			w := f.do(http.MethodPut, registryPath, registerBody([]byte("apk"), startedAt))
-			require.Equal(t, http.StatusInternalServerError, w.Code, w.Body.String())
-			require.NotContains(t, w.Body.String(), "eyJ", "the upload grant is not leaked in the error")
-			require.Contains(t, w.Body.String(), "Could not process the build request.")
-		})
-	}
-}
-
 func TestBuildRegistryShareLinks(t *testing.T) {
 	f := newRegistryFixture(t)
 	startedAt := time.Now().Add(-5 * time.Minute).UTC()
@@ -416,11 +402,6 @@ func TestBuildRegistryShareLinks(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &registration))
 	require.Equal(t, http.StatusNoContent, f.do(http.MethodPut, registryPath+"/upload", string(content), bucket.LocalUploadTokenHeader, registration.Upload.Headers[bucket.LocalUploadTokenHeader]).Code)
 	require.Equal(t, http.StatusOK, f.do(http.MethodPost, registryPath+"/complete", "").Code)
-
-	t.Setenv("BASE_URL", "http://bad url")
-	w = f.do(http.MethodPost, "/api/app/"+registryApp+"/builds/"+registryBuild+"/shares", `{"expiresInHours":2}`)
-	require.Equal(t, http.StatusInternalServerError, w.Code)
-	require.Empty(t, f.repo.shares, "no link is created when it cannot be returned")
 
 	t.Setenv("BASE_URL", "https://ota.example.com/sub/path")
 	w = f.do(http.MethodPost, "/api/app/"+registryApp+"/builds/"+registryBuild+"/shares", "")
