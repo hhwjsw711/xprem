@@ -129,12 +129,12 @@ func (h *BuildRegistryHandler) List(w http.ResponseWriter, r *http.Request) {
 		RenderError(w, http.StatusBadRequest, "Invalid pagination.")
 		return
 	}
-	builds, count, err := h.service.List(r.Context(), mux.Vars(r)["APP_ID"], int32(limit), int32(offset))
+	page, err := h.service.List(r.Context(), mux.Vars(r)["APP_ID"], int32(limit), int32(offset), r.URL.Query().Get("cursor"))
 	if err != nil {
 		renderBuildRegistryError(w, err)
 		return
 	}
-	RenderJSON(w, http.StatusOK, map[string]any{"builds": builds, "count": count})
+	RenderJSON(w, http.StatusOK, page)
 }
 
 func (h *BuildRegistryHandler) Get(w http.ResponseWriter, r *http.Request) {

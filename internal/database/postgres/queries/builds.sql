@@ -15,7 +15,11 @@ UPDATE builds SET status=$3, size=$4, sha256=$5, metadata=$6, finished_at=$7, du
 WHERE app_id=$1 AND id=$2 RETURNING *;
 
 -- name: ListBuilds :many
-SELECT * FROM builds WHERE app_id=$1 ORDER BY created_at DESC,id DESC LIMIT $2 OFFSET $3;
+SELECT * FROM builds
+WHERE app_id=$1
+  AND (sqlc.narg('before_created_at')::timestamptz IS NULL
+       OR (created_at, id) < (sqlc.narg('before_created_at')::timestamptz, sqlc.narg('before_id')::uuid))
+ORDER BY created_at DESC,id DESC LIMIT $2 OFFSET $3;
 
 -- name: CountBuilds :one
 SELECT count(*) FROM builds WHERE app_id=$1;

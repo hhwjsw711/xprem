@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -77,7 +78,7 @@ func (r *registryRepo) Get(_ context.Context, appID, id string) (*types.BuildRec
 	return &record, nil
 }
 
-func (r *registryRepo) List(_ context.Context, appID string, _, _ int32) ([]types.BuildRecord, int64, error) {
+func (r *registryRepo) List(_ context.Context, appID string, _, _ int32, _ *types.BuildCursor) ([]types.BuildRecord, int64, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.err != nil {
@@ -311,6 +312,29 @@ func TestBuildRegistryLocalUploadFlow(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, w.Code)
 	w = f.do(http.MethodGet, "/api/app/"+registryApp+"/builds/not-a-uuid", "")
 	require.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestBuildRegistryRejectsInvalidPagination(t *testing.T) {
+	f := newRegistryFixture(t)
+	encode := func(payload string) string { return base64.RawURLEncoding.EncodeToString([]byte(payload)) }
+	validCursor := encode(`{"createdAt":"2026-09-13T12:00:00.123456Z","id":"` + registryBuild + `"}`)
+	for _, query := range []string{
+		"limit=0", "limit=101", "limit=bad", "offset=-1", "offset=100001", "offset=bad",
+		"cursor=not-base64!", "cursor=" + strings.Repeat("a", 513),
+		"cursor=" + encode(`null`), "cursor=" + encode(`{}`),
+		"cursor=" + encode(`{"id":"`+registryBuild+`"}`),
+		"cursor=" + encode(`{"createdAt":"2026-09-13T12:00:00Z"}`),
+		"cursor=" + encode(`{"createdAt":"invalid","id":"`+registryBuild+`"}`),
+		"cursor=" + encode(`{"createdAt":"2026-09-13T12:00:00Z","id":"invalid"}`),
+		"cursor=" + validCursor + "&offset=1",
+	} {
+		t.Run(query, func(t *testing.T) {
+			response := f.do(http.MethodGet, "/api/app/"+registryApp+"/builds?"+query, "")
+			require.Equal(t, http.StatusBadRequest, response.Code, response.Body.String())
+		})
+	}
+	response := f.do(http.MethodGet, "/api/app/"+registryApp+"/builds?cursor="+validCursor, "")
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
 }
 
 func TestBuildRegistryUsesAuthorizedIdentifierNotPath(t *testing.T) {

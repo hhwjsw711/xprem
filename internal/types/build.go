@@ -75,3 +75,15 @@ type BuildRecord struct {
 	UpdatedAt       time.Time         `json:"updatedAt"`
 	ReadyAt         *time.Time        `json:"readyAt,omitempty"`
 }
+
+// BuildCursor follows the immutable (created_at, id) ordering of the build list.
+type BuildCursor struct {
+	CreatedAt time.Time `json:"createdAt"`
+	ID        string    `json:"id"`
+}
+
+type BuildsPage struct {
+	Builds     []BuildRecord `json:"builds"`
+	Count      int64         `json:"count"`
+	NextCursor string        `json:"nextCursor,omitempty"`
+}

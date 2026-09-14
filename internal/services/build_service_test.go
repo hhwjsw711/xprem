@@ -68,7 +68,7 @@ func (r *memoryBuildRepo) Get(_ context.Context, appID, id string) (*types.Build
 	return &record, nil
 }
 
-func (r *memoryBuildRepo) List(_ context.Context, appID string, _, _ int32) ([]types.BuildRecord, int64, error) {
+func (r *memoryBuildRepo) List(_ context.Context, appID string, _, _ int32, _ *types.BuildCursor) ([]types.BuildRecord, int64, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	var records []types.BuildRecord

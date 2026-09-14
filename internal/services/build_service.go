@@ -3,7 +3,9 @@ package services
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -31,7 +33,7 @@ var fingerprintHash = regexp.MustCompile(`^(?:[0-9a-f]{40}|[0-9a-f]{64})$`)
 type BuildRepository interface {
 	Create(context.Context, types.BuildRecord) (*types.BuildRecord, bool, error)
 	Get(context.Context, string, string) (*types.BuildRecord, error)
-	List(context.Context, string, int32, int32) ([]types.BuildRecord, int64, error)
+	List(context.Context, string, int32, int32, *types.BuildCursor) ([]types.BuildRecord, int64, error)
 	Transition(context.Context, string, string, func(types.BuildRecord) (*types.BuildRecord, error)) (*types.BuildRecord, error)
 }
 type BuildService struct {
@@ -291,11 +293,39 @@ func (s *BuildService) Get(ctx context.Context, appID, id string) (*types.BuildR
 	return s.repo.Get(ctx, appID, id)
 }
 
-func (s *BuildService) List(ctx context.Context, appID string, limit, offset int32) ([]types.BuildRecord, int64, error) {
+func (s *BuildService) List(ctx context.Context, appID string, limit, offset int32, rawCursor string) (types.BuildsPage, error) {
 	if s.repo == nil {
-		return nil, 0, store.ErrNotSupportedInStatelessMode
+		return types.BuildsPage{}, store.ErrNotSupportedInStatelessMode
 	}
-	return s.repo.List(ctx, appID, limit, offset)
+	if limit < 1 || limit > 100 || offset < 0 || offset > 100000 || (rawCursor != "" && offset != 0) {
+		return types.BuildsPage{}, validation.Errorf("pagination", "invalid limit, offset, or cursor combination")
+	}
+	var cursor *types.BuildCursor
+	if rawCursor != "" {
+		if len(rawCursor) > 512 {
+			return types.BuildsPage{}, validation.Errorf("cursor", "invalid build cursor")
+		}
+		decoded, err := base64.RawURLEncoding.DecodeString(rawCursor)
+		if err != nil || json.Unmarshal(decoded, &cursor) != nil || cursor == nil || cursor.CreatedAt.IsZero() || validateBuildID(cursor.ID) != nil {
+			return types.BuildsPage{}, validation.Errorf("cursor", "invalid build cursor")
+		}
+	}
+	// Read ahead instead of using a total that may change between requests.
+	builds, count, err := s.repo.List(ctx, appID, limit+1, offset, cursor)
+	if err != nil {
+		return types.BuildsPage{}, err
+	}
+	page := types.BuildsPage{Builds: builds, Count: count}
+	if len(builds) > int(limit) {
+		page.Builds = builds[:limit]
+		last := page.Builds[len(page.Builds)-1]
+		encoded, err := json.Marshal(types.BuildCursor{CreatedAt: last.CreatedAt, ID: last.ID})
+		if err != nil {
+			return types.BuildsPage{}, err
+		}
+		page.NextCursor = base64.RawURLEncoding.EncodeToString(encoded)
+	}
+	return page, nil
 }
 
 func (s *BuildService) transition(ctx context.Context, appID, identifierID, id string, decide func(types.BuildRecord) (*types.BuildRecord, error)) (*types.BuildRecord, error) {

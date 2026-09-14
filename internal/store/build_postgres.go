@@ -88,8 +88,13 @@ func (s *PostgresBuildStore) Get(ctx context.Context, appID, id string) (*types.
 	return buildRecord(row)
 }
 
-func (s *PostgresBuildStore) List(ctx context.Context, appID string, limit, offset int32) ([]types.BuildRecord, int64, error) {
-	rows, err := s.engine.Queries.ListBuilds(ctx, pgdb.ListBuildsParams{AppID: ToPgUUID(appID), Limit: limit, Offset: offset})
+func (s *PostgresBuildStore) List(ctx context.Context, appID string, limit, offset int32, cursor *types.BuildCursor) ([]types.BuildRecord, int64, error) {
+	params := pgdb.ListBuildsParams{AppID: ToPgUUID(appID), Limit: limit, Offset: offset}
+	if cursor != nil {
+		params.BeforeCreatedAt = pgtype.Timestamptz{Time: cursor.CreatedAt, Valid: true}
+		params.BeforeID = ToPgUUID(cursor.ID)
+	}
+	rows, err := s.engine.Queries.ListBuilds(ctx, params)
 	if err != nil {
 		return nil, 0, err
 	}
