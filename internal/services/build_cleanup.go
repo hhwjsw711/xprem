@@ -25,6 +25,7 @@ const (
 	buildStagingSweepBatchSize = 9 // One delete per row leaves 30 seconds for SQL and commit.
 	buildOutboxMaxBackoff      = 6 * time.Hour
 	buildStagingStaleAfter     = 24 * time.Hour
+	buildUnfinishedStaleAfter  = 24 * time.Hour
 )
 
 // BuildArtifactDeleter removes one artifact object; absent objects are not an error.
@@ -32,8 +33,8 @@ type BuildArtifactDeleter interface {
 	DeleteBuildArtifact(context.Context, bucket.BuildArtifact, bool) error
 }
 
-// BuildCleanup drains the build_artifact_cleanup outbox and sweeps stale
-// staging uploads. Final artifacts of ready builds are never touched.
+// BuildCleanup drains the build_artifact_cleanup outbox, sweeps stale staging
+// uploads and fails abandoned builds. Final artifacts of ready builds are never touched.
 type BuildCleanup struct {
 	db      database.DBTX
 	storage BuildArtifactDeleter
@@ -43,11 +44,11 @@ func NewBuildCleanup(db database.DBTX, storage BuildArtifactDeleter) *BuildClean
 	return &BuildCleanup{db: db, storage: storage}
 }
 
-// Start runs both loops until the returned stop function is called.
+// Start runs the cleanup loops until the returned stop function is called.
 func (c *BuildCleanup) Start(parent context.Context) func() {
 	ctx, cancel := context.WithCancel(parent)
 	var wg sync.WaitGroup
-	wg.Add(2)
+	wg.Add(3)
 	go func() {
 		defer wg.Done()
 		c.loop(ctx, buildOutboxInterval, "outbox", c.DrainOutbox)
@@ -55,6 +56,10 @@ func (c *BuildCleanup) Start(parent context.Context) func() {
 	go func() {
 		defer wg.Done()
 		c.loop(ctx, buildStagingSweepInterval, "staging sweep", c.SweepStaging)
+	}()
+	go func() {
+		defer wg.Done()
+		c.loop(ctx, buildStagingSweepInterval, "stale builds", c.FailStaleBuilds)
 	}()
 	return func() {
 		cancel()
@@ -147,6 +152,13 @@ func (c *BuildCleanup) SweepStaging(ctx context.Context) (int, error) {
 		swept++
 	}
 	return swept, tx.Commit(ctx)
+}
+
+// FailStaleBuilds marks failed the builds left building or uploading for a day,
+// such as those whose CLI was interrupted before reporting the outcome.
+func (c *BuildCleanup) FailStaleBuilds(ctx context.Context) (int, error) {
+	count, err := pgdb.New(c.db).FailStaleBuilds(ctx, pgtype.Interval{Microseconds: buildUnfinishedStaleAfter.Microseconds(), Valid: true})
+	return int(count), err
 }
 
 func (c *BuildCleanup) deleteArtifact(ctx context.Context, ref bucket.BuildArtifact, staging, final bool) error {

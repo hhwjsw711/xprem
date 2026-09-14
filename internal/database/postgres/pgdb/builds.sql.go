@@ -48,6 +48,20 @@ func (q *Queries) DeleteBuildArtifactCleanup(ctx context.Context, id int64) erro
 	return err
 }
 
+const failStaleBuilds = `-- name: FailStaleBuilds :execrows
+UPDATE builds SET status = 'failed', finished_at = now(),
+    duration_ms = GREATEST((EXTRACT(EPOCH FROM now() - started_at) * 1000)::bigint, 0), updated_at = now()
+WHERE status IN ('building', 'uploading') AND updated_at < now() - $1::interval
+`
+
+func (q *Queries) FailStaleBuilds(ctx context.Context, staleAfter pgtype.Interval) (int64, error) {
+	result, err := q.db.Exec(ctx, failStaleBuilds, staleAfter)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getBuild = `-- name: GetBuild :one
 SELECT id, app_id, app_identifier_id, platform, application_id, status, artifact_type, size, sha256, artifact_key, metadata, actor_type, actor_id, actor_display, started_at, finished_at, duration_ms, created_at, updated_at, ready_at FROM builds WHERE app_id=$1 AND id=$2
 `

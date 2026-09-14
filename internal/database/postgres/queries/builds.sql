@@ -44,6 +44,11 @@ WHERE b.updated_at < now() - sqlc.arg('stale_after')::interval
   AND (s.build_id IS NULL OR (b.status <> 'ready' AND s.swept_at < now() - sqlc.arg('stale_after')::interval))
 ORDER BY b.created_at, b.id LIMIT sqlc.arg('batch_size') FOR UPDATE OF b SKIP LOCKED;
 
+-- name: FailStaleBuilds :execrows
+UPDATE builds SET status = 'failed', finished_at = now(),
+    duration_ms = GREATEST((EXTRACT(EPOCH FROM now() - started_at) * 1000)::bigint, 0), updated_at = now()
+WHERE status IN ('building', 'uploading') AND updated_at < now() - sqlc.arg('stale_after')::interval;
+
 -- name: MarkBuildStagingSwept :exec
 INSERT INTO build_staging_sweeps (build_id, swept_at) VALUES ($1, now())
 ON CONFLICT (build_id) DO UPDATE SET swept_at = now();

@@ -321,6 +321,31 @@ func TestBuildStagingSweepKeepsLedgerOnDeleteFailureAndSkipsLockedBuilds(t *test
 	require.ElementsMatch(t, []string{failingStaging, lockedStaging}, deleter.keys())
 }
 
+func TestFailStaleBuildsOnlyFailsAbandonedBuilds(t *testing.T) {
+	pool, _, cleanup := setupBuildCleanup(t)
+	ctx := context.Background()
+	fixture := insertCleanupFixture(t, pool)
+	oldBuilding := fixture.insertBuild(t, pool, "building", 25*time.Hour)
+	oldUploading := fixture.insertBuild(t, pool, "uploading", 25*time.Hour)
+	youngBuilding := fixture.insertBuild(t, pool, "building", 23*time.Hour)
+	oldReady := fixture.insertBuild(t, pool, "ready", 25*time.Hour)
+
+	count, err := cleanup.FailStaleBuilds(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 2, count)
+
+	for ref, want := range map[bucket.BuildArtifact]string{oldBuilding: "failed", oldUploading: "failed", youngBuilding: "building", oldReady: "ready"} {
+		var status string
+		var durationMs *int64
+		require.NoError(t, pool.QueryRow(ctx, "SELECT status, duration_ms FROM builds WHERE id = $1", ref.BuildID).Scan(&status, &durationMs))
+		require.Equal(t, want, status)
+		if ref == oldBuilding {
+			require.NotNil(t, durationMs)
+			require.GreaterOrEqual(t, *durationMs, (25 * time.Hour).Milliseconds())
+		}
+	}
+}
+
 func TestBuildCleanupStartStopsCleanly(t *testing.T) {
 	pool, _, cleanup := setupBuildCleanup(t)
 	_ = pool
