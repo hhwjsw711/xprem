@@ -355,6 +355,7 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 				BranchWriter:        branchService,
 				ChannelWriter:       channelService,
 				Deployments:         deploymentService,
+				Builds:              buildService,
 				SSOEnabled:          ssoService.Enabled,
 				VisibleApps:         rbacService.VisibleAppsForPrincipal,
 				CanUseSomewhere:     rbacService.MCPCanUseSomewhere,
