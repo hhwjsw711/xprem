@@ -269,6 +269,7 @@ export type BuildsPage = {
   builds: BuildRecord[];
   // The total for the app, offset excluded.
   count: number;
+  nextCursor?: string;
 };
 
 export type BranchRecord = {
@@ -1683,8 +1684,9 @@ export class ApiClient {
     );
   }
 
-  public async getBuilds(limit = 20, offset = 0) {
-    const query = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+  public async getBuilds(limit = 20, cursor?: string) {
+    const query = new URLSearchParams({ limit: String(limit) });
+    if (cursor) query.set('cursor', cursor);
     return this.request<BuildsPage>(`${this.appScope()}/builds?${query.toString()}`, {
       method: 'GET',
     });

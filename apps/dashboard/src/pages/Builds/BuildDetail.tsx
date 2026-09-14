@@ -1,6 +1,6 @@
 import { ReactNode, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useNavigate, useParams } from 'react-router';
+import { Link, useNavigate, useParams } from 'react-router';
 import { Check, Copy, Download } from 'lucide-react';
 import { api, ApiProblemError, BuildRecord, describeApiError } from '@/lib/api';
 import { useSelectedApp } from '@/lib/SelectedAppContext';
@@ -195,8 +195,8 @@ export const BuildDetail = () => {
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
-            <BreadcrumbLink className="cursor-pointer" onClick={() => navigate('/builds')}>
-              Builds
+            <BreadcrumbLink asChild className="cursor-pointer">
+              <Link to="/builds">Builds</Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />

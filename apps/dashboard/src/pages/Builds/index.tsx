@@ -20,11 +20,8 @@ export const Builds = () => {
   const buildsQuery = useInfiniteQuery({
     queryKey: ['builds', selectedAppId, BUILDS_PAGE_SIZE],
     queryFn: ({ pageParam }) => api.getBuilds(BUILDS_PAGE_SIZE, pageParam),
-    initialPageParam: 0,
-    getNextPageParam: (lastPage, allPages) => {
-      const loaded = allPages.reduce((total, page) => total + page.builds.length, 0);
-      return lastPage.builds.length > 0 && loaded < lastPage.count ? loaded : undefined;
-    },
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: lastPage => lastPage.nextCursor,
     enabled: !!selectedAppId && CONTROL_PLANE_ENABLED && canRead,
     refetchInterval: 10000,
   });

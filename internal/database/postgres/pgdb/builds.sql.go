@@ -158,17 +158,29 @@ func (q *Queries) InsertBuild(ctx context.Context, arg InsertBuildParams) (Build
 }
 
 const listBuilds = `-- name: ListBuilds :many
-SELECT id, app_id, app_identifier_id, platform, application_id, status, artifact_type, size, sha256, artifact_key, metadata, actor_type, actor_id, actor_display, started_at, finished_at, duration_ms, created_at, updated_at, ready_at FROM builds WHERE app_id=$1 ORDER BY created_at DESC,id DESC LIMIT $2 OFFSET $3
+SELECT id, app_id, app_identifier_id, platform, application_id, status, artifact_type, size, sha256, artifact_key, metadata, actor_type, actor_id, actor_display, started_at, finished_at, duration_ms, created_at, updated_at, ready_at FROM builds
+WHERE app_id=$1
+  AND ($4::timestamptz IS NULL
+       OR (created_at, id) < ($4::timestamptz, $5::uuid))
+ORDER BY created_at DESC,id DESC LIMIT $2 OFFSET $3
 `
 
 type ListBuildsParams struct {
-	AppID  pgtype.UUID `json:"app_id"`
-	Limit  int32       `json:"limit"`
-	Offset int32       `json:"offset"`
+	AppID           pgtype.UUID        `json:"app_id"`
+	Limit           int32              `json:"limit"`
+	Offset          int32              `json:"offset"`
+	BeforeCreatedAt pgtype.Timestamptz `json:"before_created_at"`
+	BeforeID        pgtype.UUID        `json:"before_id"`
 }
 
 func (q *Queries) ListBuilds(ctx context.Context, arg ListBuildsParams) ([]Build, error) {
-	rows, err := q.db.Query(ctx, listBuilds, arg.AppID, arg.Limit, arg.Offset)
+	rows, err := q.db.Query(ctx, listBuilds,
+		arg.AppID,
+		arg.Limit,
+		arg.Offset,
+		arg.BeforeCreatedAt,
+		arg.BeforeID,
+	)
 	if err != nil {
 		return nil, err
 	}

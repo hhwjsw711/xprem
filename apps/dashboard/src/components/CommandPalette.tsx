@@ -22,6 +22,7 @@ import { api } from '@/lib/api';
 import { useSelectedApp } from '@/lib/SelectedAppContext';
 import { useSettings } from '@/lib/SettingsContext';
 import { useCurrentUser } from '@/lib/CurrentUserContext';
+import { useAppPermission } from '@/ee/lib/PermissionsContext';
 import { observeNavigation } from '@/ee/pages/Observe/navigation';
 import {
   CommandDialog,
@@ -49,6 +50,7 @@ export const CommandPalette = ({
   const navigate = useNavigate();
   const { CONTROL_PLANE_ENABLED } = useSettings();
   const { isAdmin } = useCurrentUser();
+  const canReadBuilds = useAppPermission('build:read', 'any-member');
   const { apps, selectedAppId, setSelectedAppId } = useSelectedApp();
 
   const channelsQuery = useQuery({
@@ -82,7 +84,7 @@ export const CommandPalette = ({
         ...(CONTROL_PLANE_ENABLED
           ? [
               { label: 'API tokens', path: '/tokens', icon: KeyRound },
-              { label: 'Builds', path: '/builds', icon: Package },
+              ...(canReadBuilds ? [{ label: 'Builds', path: '/builds', icon: Package }] : []),
               { label: 'Build credentials', path: '/build-credentials', icon: Key },
               { label: 'Environments', path: '/environments', icon: Container },
             ]

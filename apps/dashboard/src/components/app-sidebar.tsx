@@ -39,6 +39,7 @@ import { useSelectedApp } from '@/lib/SelectedAppContext';
 import { CreateAppModal } from '@/components/app-creation';
 import { useSettings } from '@/lib/SettingsContext';
 import { useCurrentUser } from '@/lib/CurrentUserContext';
+import { useAppPermission } from '@/ee/lib/PermissionsContext';
 import { EnterpriseBadge } from '@/ee/components/EnterpriseBadge';
 import { observeNavigation } from '@/ee/pages/Observe/navigation';
 import { ThemePreference, useTheme } from '@/lib/theme';
@@ -313,6 +314,7 @@ export function AppSidebar({
 } = {}) {
   const { CONTROL_PLANE_ENABLED, SERVER_VERSION } = useSettings();
   const { isAdmin } = useCurrentUser();
+  const canReadBuilds = useAppPermission('build:read', 'any-member');
   const { apps, selectedAppId, setSelectedAppId, refreshApps, isLoading } = useSelectedApp();
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
 
@@ -429,12 +431,14 @@ export function AppSidebar({
                     <ExpandableSection
                       label="Builds"
                       icon={Wrench}
-                      to={'/builds'}
+                      to={canReadBuilds ? '/builds' : '/build-credentials'}
                       paths={buildPaths}
                       onNavigate={onNavigate}>
-                        <SubNavLink to="/builds" icon={Package} onNavigate={onNavigate}>
-                          Builds
-                        </SubNavLink>
+                        {canReadBuilds && (
+                          <SubNavLink to="/builds" icon={Package} onNavigate={onNavigate}>
+                            Builds
+                          </SubNavLink>
+                        )}
                         <SubNavLink to="/build-credentials" icon={Key} onNavigate={onNavigate}>
                           Credentials
                         </SubNavLink>
