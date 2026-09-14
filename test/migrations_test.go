@@ -240,3 +240,8 @@ func (b *dummyMigrationsBucket) RequestBuildArtifactUploadURL(context.Context, s
 	b.actionsRecorded = append(b.actionsRecorded, "RequestBuildArtifactUploadURL")
 	return &bucket.UploadRequest{Method: "PUT"}, nil
 }
+
+func (b *dummyMigrationsBucket) RequestBuildArtifactDownloadURL(context.Context, bucket.BuildArtifact, time.Time) (string, error) {
+	b.actionsRecorded = append(b.actionsRecorded, "RequestBuildArtifactDownloadURL")
+	return "", nil
+}

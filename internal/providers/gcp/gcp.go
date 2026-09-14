@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"sync"
 	"time"
 	"xprem/config"
@@ -66,19 +67,31 @@ func loadGoogleCreds() (*googleCreds, error) {
 }
 
 func SignedURL(bucket, key, method, contentType string, expires time.Duration) (string, error) {
+	return signedURL(bucket, key, &storage.SignedURLOptions{
+		Method:      method,
+		Expires:     time.Now().Add(expires),
+		ContentType: contentType,
+	})
+}
+
+func SignedDownloadURL(bucket, key, contentDisposition, contentType string, expiresAt time.Time) (string, error) {
+	return signedURL(bucket, key, &storage.SignedURLOptions{
+		Method:  "GET",
+		Expires: expiresAt,
+		QueryParameters: url.Values{
+			"response-content-disposition": {contentDisposition},
+			"response-content-type":        {contentType},
+		},
+	})
+}
+
+func signedURL(bucket, key string, opts *storage.SignedURLOptions) (string, error) {
 	creds, err := loadGoogleCreds()
 	if err != nil {
 		return "", err
 	}
-	opts := &storage.SignedURLOptions{
-		Scheme:         storage.SigningSchemeV4,
-		Method:         method,
-		Expires:        time.Now().Add(expires),
-		GoogleAccessID: creds.ClientEmail,
-		PrivateKey:     []byte(creds.PrivateKey),
-	}
-	if contentType != "" {
-		opts.ContentType = contentType
-	}
+	opts.Scheme = storage.SigningSchemeV4
+	opts.GoogleAccessID = creds.ClientEmail
+	opts.PrivateKey = []byte(creds.PrivateKey)
 	return storage.SignedURL(bucket, key, opts)
 }

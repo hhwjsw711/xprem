@@ -44,11 +44,12 @@ func (registryIdentifierRepo) GetAppIdentifierByID(_ context.Context, app, id st
 type registryRepo struct {
 	mu     sync.Mutex
 	builds map[string]types.BuildRecord
+	shares map[string]types.BuildShare
 	err    error
 }
 
 func newRegistryRepo() *registryRepo {
-	return &registryRepo{builds: map[string]types.BuildRecord{}}
+	return &registryRepo{builds: map[string]types.BuildRecord{}, shares: map[string]types.BuildShare{}}
 }
 
 func (r *registryRepo) Create(_ context.Context, record types.BuildRecord) (*types.BuildRecord, bool, error) {
@@ -115,6 +116,34 @@ func (r *registryRepo) Transition(_ context.Context, appID, id string, decide fu
 	return next, nil
 }
 
+func (r *registryRepo) CreateShare(_ context.Context, id, _, hash string, expires time.Time) (types.BuildShare, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	share := types.BuildShare{ID: id, CreatedAt: time.Now(), ExpiresAt: expires}
+	r.shares[hash] = share
+	return share, nil
+}
+
+func (r *registryRepo) ListShares(context.Context, string) ([]types.BuildShare, error) {
+	return nil, nil
+}
+
+func (r *registryRepo) RevokeShare(context.Context, string, string) error { return nil }
+
+func (r *registryRepo) ResolveShare(_ context.Context, hash string) (*types.BuildRecord, time.Time, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.err != nil {
+		return nil, time.Time{}, r.err
+	}
+	share, ok := r.shares[hash]
+	if !ok || share.RevokedAt != nil || !share.ExpiresAt.After(time.Now()) {
+		return nil, time.Time{}, &store.ErrResourceNotFound{Resource: "share", Identifier: "link"}
+	}
+	record := r.builds[registryBuild]
+	return &record, share.ExpiresAt, nil
+}
+
 type registryFixture struct {
 	handler *BuildRegistryHandler
 	repo    *registryRepo
@@ -139,9 +168,11 @@ func newRegistryFixture(t *testing.T) *registryFixture {
 	router.HandleFunc("/{APP_ID}/build/{IDENTIFIER_ID}/artifacts/{BUILD_ID}/failed", authorized(handler.Fail)).Methods(http.MethodPost)
 	router.HandleFunc("/{APP_ID}/build/{IDENTIFIER_ID}/artifacts/{BUILD_ID}/complete", authorized(handler.Complete)).Methods(http.MethodPost)
 	router.HandleFunc("/{APP_ID}/build/{IDENTIFIER_ID}/artifacts/{BUILD_ID}/upload", authorized(handler.UploadLocal)).Methods(http.MethodPut)
+	router.HandleFunc("/build-shares/{TOKEN}", handler.PublicShare).Methods(http.MethodGet)
 	router.HandleFunc("/api/app/{APP_ID}/builds", handler.List).Methods(http.MethodGet)
 	router.HandleFunc("/api/app/{APP_ID}/builds/{BUILD_ID}", handler.Get).Methods(http.MethodGet)
 	router.HandleFunc("/api/app/{APP_ID}/builds/{BUILD_ID}/download", handler.Download).Methods(http.MethodGet)
+	router.HandleFunc("/api/app/{APP_ID}/builds/{BUILD_ID}/shares", handler.CreateShare).Methods(http.MethodPost)
 	return &registryFixture{handler: handler, repo: repo, router: router}
 }
 
@@ -356,18 +387,69 @@ func TestBuildRegistryUsesAuthorizedIdentifierNotPath(t *testing.T) {
 	require.Equal(t, types.BuildStatusBuilding, f.repo.builds[registryBuild].Status)
 }
 
-func TestBuildRegistryPublicURLRequiresValidBaseURL(t *testing.T) {
-	for _, base := range []string{"not a url", "ftp://ota.example.com", "https://user:secret@ota.example.com", "/relative"} {
-		t.Run(base, func(t *testing.T) {
-			f := newRegistryFixture(t)
-			t.Setenv("BASE_URL", base)
-			startedAt := time.Now().Add(-time.Minute).UTC()
-			w := f.do(http.MethodPut, registryPath, registerBody([]byte("apk"), startedAt))
-			require.Equal(t, http.StatusInternalServerError, w.Code, w.Body.String())
-			require.NotContains(t, w.Body.String(), "eyJ", "the upload grant is not leaked in the error")
-			require.Contains(t, w.Body.String(), "Could not process the build request.")
-		})
+func TestBuildRegistryShareLinks(t *testing.T) {
+	f := newRegistryFixture(t)
+	startedAt := time.Now().Add(-5 * time.Minute).UTC()
+	content := []byte("shared apk")
+	w := f.do(http.MethodPut, registryPath, registerBody(content, startedAt))
+	require.Equal(t, http.StatusOK, w.Code)
+	var registration struct {
+		Upload struct {
+			Headers map[string]string `json:"headers"`
+		} `json:"upload"`
 	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &registration))
+	require.Equal(t, http.StatusNoContent, f.do(http.MethodPut, registryPath+"/upload", string(content), bucket.LocalUploadTokenHeader, registration.Upload.Headers[bucket.LocalUploadTokenHeader]).Code)
+	require.Equal(t, http.StatusOK, f.do(http.MethodPost, registryPath+"/complete", "").Code)
+
+	t.Setenv("BASE_URL", "https://ota.example.com/sub/path")
+	w = f.do(http.MethodPost, "/api/app/"+registryApp+"/builds/"+registryBuild+"/shares", "")
+	require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
+	require.Equal(t, "no-store", w.Header().Get("Cache-Control"))
+	var created struct {
+		Share types.BuildShare `json:"share"`
+		URL   string           `json:"url"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &created))
+	require.True(t, strings.HasPrefix(created.URL, "https://ota.example.com/sub/path/build-shares/"), created.URL)
+	require.WithinDuration(t, time.Now().Add(24*time.Hour), created.Share.ExpiresAt, time.Minute, "the default expiry is one day")
+	shareToken := strings.TrimPrefix(created.URL, "https://ota.example.com/sub/path/build-shares/")
+	require.Len(t, shareToken, 64)
+
+	w = f.do(http.MethodGet, "/build-shares/"+shareToken, "")
+	require.Equal(t, http.StatusOK, w.Code)
+	require.Equal(t, "private, no-store", w.Header().Get("Cache-Control"))
+	require.Equal(t, "noindex, nofollow", w.Header().Get("X-Robots-Tag"))
+	require.Equal(t, content, w.Body.Bytes())
+	require.Equal(t, "application/vnd.android.package-archive", w.Header().Get("Content-Type"))
+	require.Equal(t, `attachment; filename="`+registryBuild+`.apk"`, w.Header().Get("Content-Disposition"))
+	require.Equal(t, "no-referrer", w.Header().Get("Referrer-Policy"))
+
+	for _, bad := range []string{"short", strings.Repeat("0", 64), strings.ToUpper(shareToken)} {
+		w = f.do(http.MethodGet, "/build-shares/"+bad, "")
+		require.Equal(t, http.StatusBadRequest, w.Code, bad)
+		require.Equal(t, "Expired link\n", w.Body.String())
+		require.Equal(t, "text/plain; charset=utf-8", w.Header().Get("Content-Type"))
+	}
+	for _, state := range []string{"expired", "revoked"} {
+		share := created.Share
+		past := time.Now().Add(-time.Minute)
+		if state == "expired" {
+			share.ExpiresAt = past
+		} else {
+			share.RevokedAt = &past
+		}
+		hash := sha256.Sum256([]byte(shareToken))
+		f.repo.shares[hex.EncodeToString(hash[:])] = share
+		w = f.do(http.MethodGet, "/build-shares/"+shareToken, "")
+		require.Equal(t, http.StatusBadRequest, w.Code, state)
+		require.Equal(t, "Expired link\n", w.Body.String())
+		require.Equal(t, "text/plain; charset=utf-8", w.Header().Get("Content-Type"))
+	}
+	f.repo.err = errors.New("database down")
+	w = f.do(http.MethodGet, "/build-shares/"+shareToken, "")
+	require.Equal(t, http.StatusInternalServerError, w.Code, "outages are not reported as expired links")
+	require.NotContains(t, w.Body.String(), "database down")
 }
 
 func TestBuildRegistryErrorMapping(t *testing.T) {

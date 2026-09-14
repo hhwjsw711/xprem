@@ -6,6 +6,7 @@ import (
 	"github.com/google/uuid"
 	"io"
 	"slices"
+	"time"
 	"xprem/internal/types"
 )
 
@@ -295,4 +296,14 @@ func (v *validatingBucket) RequestBuildArtifactUploadURL(ctx context.Context, ap
 		return nil, err
 	}
 	return v.Inner.RequestBuildArtifactUploadURL(ctx, appID, ref)
+}
+
+func (v *validatingBucket) RequestBuildArtifactDownloadURL(ctx context.Context, ref BuildArtifact, expiresAt time.Time) (string, error) {
+	if err := ref.Validate(); err != nil {
+		return "", err
+	}
+	if !expiresAt.After(time.Now()) {
+		return "", ErrBuildDownloadExpired
+	}
+	return v.Inner.RequestBuildArtifactDownloadURL(ctx, ref, expiresAt)
 }

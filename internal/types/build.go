@@ -87,3 +87,10 @@ type BuildsPage struct {
 	Count      int64         `json:"count"`
 	NextCursor string        `json:"nextCursor,omitempty"`
 }
+
+type BuildShare struct {
+	ID        string     `json:"id"`
+	CreatedAt time.Time  `json:"createdAt"`
+	ExpiresAt time.Time  `json:"expiresAt"`
+	RevokedAt *time.Time `json:"revokedAt,omitempty"`
+}

@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"xprem/config"
 	"xprem/internal/helpers"
 	"xprem/internal/providers/gcp"
 	"xprem/internal/types"
@@ -649,4 +650,18 @@ func (b *GCSBucket) RequestBuildArtifactUploadURL(_ context.Context, _ string, r
 		return nil, fmt.Errorf("error generating signed URL: %w", err)
 	}
 	return &UploadRequest{URL: url, Method: "PUT"}, nil
+}
+
+func (b *GCSBucket) RequestBuildArtifactDownloadURL(_ context.Context, ref BuildArtifact, expiresAt time.Time) (string, error) {
+	if config.GetEnv("GOOGLE_APPLICATION_CREDENTIALS_B64") == "" {
+		return "", nil
+	}
+	key, err := b.buildArtifactKey(ref, false)
+	if err != nil {
+		return "", err
+	}
+	if b.BucketName == "" {
+		return "", errors.New("BucketName not set")
+	}
+	return gcp.SignedDownloadURL(b.BucketName, key, ref.downloadDisposition(), ref.downloadContentType(), expiresAt)
 }

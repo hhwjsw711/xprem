@@ -773,6 +773,10 @@ func copyDirParallel(srcDir, dstDir string) error {
 	return nil
 }
 
+func (b *LocalBucket) RequestBuildArtifactDownloadURL(context.Context, BuildArtifact, time.Time) (string, error) {
+	return "", nil
+}
+
 func (b *LocalBucket) buildArtifactPath(ref BuildArtifact, staging bool) (string, error) {
 	key, err := ref.Key(staging)
 	if err != nil {
@@ -889,14 +893,7 @@ func ValidateBuildUploadToken(token, appID, identifierID, buildID string) error 
 // RequestBuildArtifactUploadURL returns the server URL and authorization header
 // for a local build artifact upload.
 func (b *LocalBucket) RequestBuildArtifactUploadURL(_ context.Context, appID string, ref BuildArtifact) (*UploadRequest, error) {
-	uploadURL, err := url.Parse(strings.TrimRight(config.GetEnv("BASE_URL"), "/"))
-	if err != nil || uploadURL.Host == "" || (uploadURL.Scheme != "https" && uploadURL.Scheme != "http") || uploadURL.User != nil {
-		return nil, errors.New("invalid BASE_URL")
-	}
-	uploadURL.Path = strings.TrimRight(uploadURL.Path, "/") + fmt.Sprintf("/%s/build/%s/artifacts/%s/upload", appID, ref.IdentifierID, ref.BuildID)
-	uploadURL.RawPath = ""
-	uploadURL.RawQuery = ""
-	uploadURL.Fragment = ""
+	uploadURL := config.BaseURL() + fmt.Sprintf("/%s/build/%s/artifacts/%s/upload", appID, ref.IdentifierID, ref.BuildID)
 	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, buildUploadClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   "build-upload",
@@ -907,5 +904,5 @@ func (b *LocalBucket) RequestBuildArtifactUploadURL(_ context.Context, appID str
 	if err != nil {
 		return nil, err
 	}
-	return &UploadRequest{URL: uploadURL.String(), Method: "PUT", Headers: map[string]string{LocalUploadTokenHeader: token}}, nil
+	return &UploadRequest{URL: uploadURL, Method: "PUT", Headers: map[string]string{LocalUploadTokenHeader: token}}, nil
 }

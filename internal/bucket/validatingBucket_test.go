@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 	"xprem/internal/types"
 
 	"github.com/stretchr/testify/assert"
@@ -383,6 +384,11 @@ func (s *stubBucket) DeleteBuildArtifact(context.Context, BuildArtifact, bool) e
 func (s *stubBucket) RequestBuildArtifactUploadURL(context.Context, string, BuildArtifact) (*UploadRequest, error) {
 	s.mark()
 	return &UploadRequest{Method: "PUT"}, nil
+}
+
+func (s *stubBucket) RequestBuildArtifactDownloadURL(context.Context, BuildArtifact, time.Time) (string, error) {
+	s.mark()
+	return "", nil
 }
 
 func TestValidateBSDiffKey(t *testing.T) {

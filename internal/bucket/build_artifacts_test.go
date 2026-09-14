@@ -30,7 +30,7 @@ func testBuildBucket(base, keyPrefix string) *validatingBucket {
 }
 
 func TestRequestBuildArtifactUpload(t *testing.T) {
-	t.Setenv("BASE_URL", "https://ota.example.com/sub/path/?ignored=query#fragment")
+	t.Setenv("BASE_URL", "https://ota.example.com/sub/path/")
 	t.Setenv("JWT_SECRET", "build-upload-test-secret")
 	t.Setenv("AZURE_STORAGE_ACCOUNT_NAME", "buildtest")
 	t.Setenv("AZURE_STORAGE_ACCOUNT_KEY", base64.StdEncoding.EncodeToString([]byte("build-upload-test-key")))

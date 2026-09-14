@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"xprem/config"
 	"xprem/internal/bucket"
 	"xprem/internal/services"
 	"xprem/internal/store"
@@ -176,4 +177,66 @@ func (h *BuildRegistryHandler) download(w http.ResponseWriter, r *http.Request, 
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.%s"`, b.ID, b.ArtifactType))
 	w.Header().Set("Content-Length", strconv.FormatInt(b.Size, 10))
 	_, _ = io.Copy(w, file.Reader)
+}
+
+func (h *BuildRegistryHandler) CreateShare(w http.ResponseWriter, r *http.Request) {
+	input := struct {
+		ExpiresInHours int `json:"expiresInHours"`
+	}{24}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024)).Decode(&input); err != nil && !errors.Is(err, io.EOF) {
+		RenderError(w, http.StatusBadRequest, "Invalid share expiration.")
+		return
+	}
+	share, token, err := h.service.CreateShare(r.Context(), mux.Vars(r)["APP_ID"], mux.Vars(r)["BUILD_ID"], input.ExpiresInHours)
+	if err != nil {
+		renderBuildRegistryError(w, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	RenderJSON(w, http.StatusCreated, map[string]any{"share": share, "url": config.BaseURL() + "/build-shares/" + token})
+}
+
+func (h *BuildRegistryHandler) ListShares(w http.ResponseWriter, r *http.Request) {
+	shares, err := h.service.ListShares(r.Context(), mux.Vars(r)["APP_ID"], mux.Vars(r)["BUILD_ID"])
+	if err != nil {
+		renderBuildRegistryError(w, err)
+		return
+	}
+	RenderJSON(w, http.StatusOK, map[string]any{"shares": shares})
+}
+
+func (h *BuildRegistryHandler) RevokeShare(w http.ResponseWriter, r *http.Request) {
+	if err := h.service.RevokeShare(r.Context(), mux.Vars(r)["APP_ID"], mux.Vars(r)["BUILD_ID"], mux.Vars(r)["SHARE_ID"]); err != nil {
+		renderBuildRegistryError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *BuildRegistryHandler) PublicShare(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("X-Robots-Tag", "noindex, nofollow")
+	token := mux.Vars(r)["TOKEN"]
+	b, expiresAt, err := h.service.ResolveShare(r.Context(), token)
+	var downloadURL string
+	if err == nil {
+		downloadURL, err = h.service.DownloadURL(r.Context(), *b, expiresAt)
+	}
+	var missing *store.ErrResourceNotFound
+	switch {
+	case errors.As(err, &missing), errors.Is(err, store.ErrNotSupportedInStatelessMode), errors.Is(err, bucket.ErrBuildDownloadExpired):
+		http.Error(w, "Expired link", http.StatusBadRequest)
+		return
+	case err != nil:
+		http.Error(w, "Could not resolve this sharing link.", http.StatusInternalServerError)
+		return
+	}
+	if downloadURL != "" {
+		w.Header().Set("Location", downloadURL)
+		w.WriteHeader(http.StatusFound)
+		return
+	}
+	h.download(w, r, *b)
 }
