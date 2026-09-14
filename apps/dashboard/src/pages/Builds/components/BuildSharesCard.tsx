@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link2, Link2Off, Plus } from 'lucide-react';
 import { api, BuildRecord, BuildShareRecord, describeApiError } from '@/lib/api';
@@ -30,14 +30,16 @@ const stateBadge: Record<ShareState, { label: string; className: string }> = {
 
 const ShareRow = ({
   share,
+  now,
   onRevoke,
   revoking,
 }: {
   share: BuildShareRecord;
+  now: number;
   onRevoke: () => void;
   revoking: boolean;
 }) => {
-  const state = shareState(share);
+  const state = shareState(share, now);
   const badge = stateBadge[state];
   return (
     <li className="flex flex-col gap-2 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
@@ -86,6 +88,12 @@ export const BuildSharesCard = ({
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [revoking, setRevoking] = useState<string | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
 
   const shareable = canShareBuild(build);
   const sharesQuery = useQuery({
@@ -94,7 +102,7 @@ export const BuildSharesCard = ({
     enabled: !!selectedAppId && canShare && build.artifactType === 'apk',
   });
   const shares = sharesQuery.data?.shares ?? [];
-  const activeCount = shares.filter(share => shareState(share) === 'active').length;
+  const activeCount = shares.filter(share => shareState(share, now) === 'active').length;
 
   const revoke = async (share: BuildShareRecord) => {
     setRevoking(share.id);
@@ -168,6 +176,7 @@ export const BuildSharesCard = ({
                       <ShareRow
                         key={share.id}
                         share={share}
+                        now={now}
                         revoking={revoking === share.id}
                         onRevoke={() => void revoke(share)}
                       />

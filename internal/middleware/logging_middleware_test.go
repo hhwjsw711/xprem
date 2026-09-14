@@ -179,4 +179,6 @@ func TestRedactBuildCapability(t *testing.T) {
 	require.Equal(t, "https://h/x/build-shares/[REDACTED]?[REDACTED]", redactBuildCapability("https://h/x/build-shares/"+shareToken+"?a=1"))
 	require.Equal(t, "/build-shares/", redactBuildCapability("/build-shares/"))
 	require.Equal(t, "/api/app/app-1/builds/b-1/shares", redactBuildCapability("/api/app/app-1/builds/b-1/shares"))
+	require.Equal(t, "[REDACTED]", redactBuildCapability("%2Fbuild-shares%2F"+shareToken))
+	require.Equal(t, "[REDACTED]", redactBuildCapability("%252Fbuild-shares%252F"+shareToken))
 }

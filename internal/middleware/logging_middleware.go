@@ -12,6 +12,8 @@ import (
 
 var buildCapabilityPath = regexp.MustCompile(`(/build-shares/)[^/?]+`)
 
+const maxCapabilityUnescapes = 5
+
 func redactBuildCapability(value string) string {
 	redacted := buildCapabilityPath.ReplaceAllString(value, "${1}[REDACTED]")
 	if redacted != value {
@@ -20,8 +22,16 @@ func redactBuildCapability(value string) string {
 		}
 		return redacted
 	}
-	if decoded, err := url.PathUnescape(value); err == nil && buildCapabilityPath.MatchString(decoded) {
-		return "[REDACTED]"
+	decoded := value
+	for range maxCapabilityUnescapes {
+		next, err := url.PathUnescape(decoded)
+		if err != nil || next == decoded {
+			break
+		}
+		if buildCapabilityPath.MatchString(next) {
+			return "[REDACTED]"
+		}
+		decoded = next
 	}
 	return value
 }
