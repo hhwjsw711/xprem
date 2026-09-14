@@ -66,6 +66,28 @@ func GetClient() (*azblob.Client, error) {
 // with the account key, no network call involved. The start time sits in the
 // past to tolerate clock skew between this server and Azure.
 func SignBlobSAS(containerName, blobPath string, permissions sas.BlobPermissions, expiry time.Duration) (string, error) {
+	return signBlobSAS(sas.BlobSignatureValues{
+		ExpiryTime:    time.Now().UTC().Add(expiry),
+		Permissions:   permissions.String(),
+		ContainerName: containerName,
+		BlobName:      blobPath,
+	})
+}
+
+func SignBlobDownloadURL(containerName, blobPath, contentDisposition, contentType string, expiresAt time.Time) (string, error) {
+	permissions := sas.BlobPermissions{Read: true}
+	return signBlobSAS(sas.BlobSignatureValues{
+		ExpiryTime:         expiresAt.UTC(),
+		Permissions:        permissions.String(),
+		ContainerName:      containerName,
+		BlobName:           blobPath,
+		ContentDisposition: contentDisposition,
+		ContentType:        contentType,
+		CacheControl:       "private, no-store",
+	})
+}
+
+func signBlobSAS(values sas.BlobSignatureValues) (string, error) {
 	cred, err := sharedKeyCredential()
 	if err != nil {
 		return "", err
@@ -79,20 +101,13 @@ func SignBlobSAS(containerName, blobPath string, permissions sas.BlobPermissions
 		// Azurite and other local emulators serve plain HTTP.
 		protocol = sas.ProtocolHTTPSandHTTP
 	}
-	now := time.Now().UTC()
-	values := sas.BlobSignatureValues{
-		Protocol:      protocol,
-		StartTime:     now.Add(-5 * time.Minute),
-		ExpiryTime:    now.Add(expiry),
-		Permissions:   permissions.String(),
-		ContainerName: containerName,
-		BlobName:      blobPath,
-	}
+	values.Protocol = protocol
+	values.StartTime = time.Now().UTC().Add(-5 * time.Minute)
 	queryParams, err := values.SignWithSharedKey(cred)
 	if err != nil {
 		return "", fmt.Errorf("error signing SAS: %w", err)
 	}
-	return fmt.Sprintf("%s/%s/%s?%s", serviceURL, containerName, escapeBlobPath(blobPath), queryParams.Encode()), nil
+	return fmt.Sprintf("%s/%s/%s?%s", serviceURL, values.ContainerName, escapeBlobPath(values.BlobName), queryParams.Encode()), nil
 }
 
 // escapeBlobPath escapes each path segment while keeping the "/" separators,

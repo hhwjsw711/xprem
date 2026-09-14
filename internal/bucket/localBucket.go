@@ -773,6 +773,10 @@ func copyDirParallel(srcDir, dstDir string) error {
 	return nil
 }
 
+func (b *LocalBucket) RequestBuildArtifactDownloadURL(context.Context, BuildArtifact, time.Time) (string, error) {
+	return "", nil
+}
+
 func (b *LocalBucket) buildArtifactPath(ref BuildArtifact, staging bool) (string, error) {
 	key, err := ref.Key(staging)
 	if err != nil {

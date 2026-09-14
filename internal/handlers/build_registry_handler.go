@@ -219,14 +219,23 @@ func (h *BuildRegistryHandler) PublicShare(w http.ResponseWriter, r *http.Reques
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("X-Robots-Tag", "noindex, nofollow")
 	token := mux.Vars(r)["TOKEN"]
-	b, _, err := h.service.ResolveShare(r.Context(), token)
+	b, expiresAt, err := h.service.ResolveShare(r.Context(), token)
+	var downloadURL string
+	if err == nil {
+		downloadURL, err = h.service.DownloadURL(r.Context(), *b, expiresAt)
+	}
 	var missing *store.ErrResourceNotFound
 	switch {
-	case errors.As(err, &missing), errors.Is(err, store.ErrNotSupportedInStatelessMode):
+	case errors.As(err, &missing), errors.Is(err, store.ErrNotSupportedInStatelessMode), errors.Is(err, bucket.ErrBuildDownloadExpired):
 		http.Error(w, "Expired link", http.StatusBadRequest)
 		return
 	case err != nil:
 		http.Error(w, "Could not resolve this sharing link.", http.StatusInternalServerError)
+		return
+	}
+	if downloadURL != "" {
+		w.Header().Set("Location", downloadURL)
+		w.WriteHeader(http.StatusFound)
 		return
 	}
 	h.download(w, r, *b)

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 	"xprem/internal/bucket"
 	"xprem/internal/types"
 
@@ -175,4 +176,9 @@ func (u unreachableBucket) DeleteBuildArtifact(context.Context, bucket.BuildArti
 func (u unreachableBucket) RequestBuildArtifactUploadURL(context.Context, string, bucket.BuildArtifact) (*bucket.UploadRequest, error) {
 	u.t.Fatal("migration should have skipped")
 	return nil, nil
+}
+
+func (u unreachableBucket) RequestBuildArtifactDownloadURL(context.Context, bucket.BuildArtifact, time.Time) (string, error) {
+	u.t.Fatal("migration should have skipped")
+	return "", nil
 }

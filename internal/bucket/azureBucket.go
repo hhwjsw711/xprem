@@ -676,3 +676,14 @@ func (b *AzureBucket) RequestBuildArtifactUploadURL(_ context.Context, _ string,
 	}
 	return &UploadRequest{URL: url, Method: "PUT", Headers: b.uploadHeaders()}, nil
 }
+
+func (b *AzureBucket) RequestBuildArtifactDownloadURL(_ context.Context, ref BuildArtifact, expiresAt time.Time) (string, error) {
+	key, err := b.buildArtifactKey(ref, false)
+	if err != nil {
+		return "", err
+	}
+	if b.ContainerName == "" {
+		return "", errors.New("ContainerName not set")
+	}
+	return azure.SignBlobDownloadURL(b.ContainerName, key, ref.downloadDisposition(), ref.downloadContentType(), expiresAt)
+}

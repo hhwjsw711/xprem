@@ -224,6 +224,8 @@ type Bucket interface {
 	PutBuildArtifact(ctx context.Context, ref BuildArtifact, staging bool, body io.Reader) error
 	DeleteBuildArtifact(ctx context.Context, ref BuildArtifact, staging bool) error
 	RequestBuildArtifactUploadURL(ctx context.Context, appID string, ref BuildArtifact) (*UploadRequest, error)
+	// An empty URL means the artifact must be streamed through the server.
+	RequestBuildArtifactDownloadURL(ctx context.Context, ref BuildArtifact, expiresAt time.Time) (string, error)
 }
 
 type BucketType string
