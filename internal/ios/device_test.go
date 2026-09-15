@@ -2,14 +2,18 @@ package ios
 
 import (
 	"bytes"
+	"crypto/rand"
+	"crypto/rsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
 	"encoding/pem"
+	"math/big"
 	"testing"
 	"time"
 	"xprem/internal/ios/iostest"
 
+	"github.com/smallstep/pkcs7"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"howett.net/plist"
@@ -157,6 +161,48 @@ func TestAppleDeviceTrustAnchor(t *testing.T) {
 	assert.Equal(t, "Apple iPhone Device CA", certificate.Subject.CommonName)
 	assert.True(t, certificate.IsCA)
 	assert.NotZero(t, certificate.KeyUsage&x509.KeyUsageCertSign)
+}
+
+// TestDeviceResponseLegacySignatures covers RSA/SHA-1 responses without signed attributes.
+func TestDeviceResponseLegacySignatures(t *testing.T) {
+	authority := iostest.NewDeviceAuthority()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	der, err := x509.CreateCertificate(rand.Reader, &x509.Certificate{
+		SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "legacy iPhone"},
+		NotBefore: time.Now().Add(-2 * time.Hour), NotAfter: time.Now().Add(-time.Hour),
+		KeyUsage: x509.KeyUsageDigitalSignature,
+	}, authority.Certificate, &key.PublicKey, authority.Key)
+	require.NoError(t, err)
+	certificate, err := x509.ParseCertificate(der)
+	require.NoError(t, err)
+	content, err := plist.Marshal(map[string]string{"UDID": "legacy-device", "CHALLENGE": "challenge"}, plist.XMLFormat)
+	require.NoError(t, err)
+	for _, digest := range []asn1.ObjectIdentifier{pkcs7.OIDDigestAlgorithmSHA1, pkcs7.OIDDigestAlgorithmSHA256} {
+		signed, err := pkcs7.NewSignedData(content)
+		require.NoError(t, err)
+		signed.SetDigestAlgorithm(digest)
+		require.NoError(t, signed.SignWithoutAttr(certificate, key, pkcs7.SignerInfoConfig{}))
+		response, err := signed.Finish()
+		require.NoError(t, err)
+		attributes, err := NewDeviceResponseVerifier(authority.Certificate).Parse(response, "challenge")
+		require.NoError(t, err)
+		assert.Equal(t, "legacy-device", attributes.UDID)
+	}
+}
+
+// FuzzParseDeviceResponse exercises the public CMS parser against malformed untrusted envelopes.
+func FuzzParseDeviceResponse(f *testing.F) {
+	content, err := plist.Marshal(map[string]string{"UDID": "device", "CHALLENGE": "challenge"}, plist.XMLFormat)
+	if err != nil {
+		f.Fatal(err)
+	}
+	f.Add(iostest.SignedData(content, false))
+	f.Add(iostest.SignedData(content, true))
+	f.Add([]byte("not CMS"))
+	f.Fuzz(func(t *testing.T, response []byte) {
+		_, _ = ParseDeviceResponse(response, "challenge")
+	})
 }
 
 // TestParseDeviceResponseRejectsUnsigned prevents a link holder fabricating device attributes.
