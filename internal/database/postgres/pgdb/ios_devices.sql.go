@@ -14,33 +14,42 @@ import (
 )
 
 const claimIosDeviceInvitation = `-- name: ClaimIosDeviceInvitation :execrows
-UPDATE ios_device_invitations SET claimed_at = now()
+UPDATE ios_device_invitations SET claimed_at = now(), claim_token = $2
 WHERE id = $1 AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at > now()
     AND (claimed_at IS NULL OR claimed_at < now() - interval '5 minutes')
 `
 
-// A claim older than five minutes belongs to an enrollment that never finished.
-func (q *Queries) ClaimIosDeviceInvitation(ctx context.Context, id pgtype.UUID) (int64, error) {
-	result, err := q.db.Exec(ctx, claimIosDeviceInvitation, id)
+type ClaimIosDeviceInvitationParams struct {
+	ID         pgtype.UUID `json:"id"`
+	ClaimToken pgtype.UUID `json:"claim_token"`
+}
+
+// A claim older than five minutes may be reclaimed; its old owner can no longer finish or release it.
+func (q *Queries) ClaimIosDeviceInvitation(ctx context.Context, arg ClaimIosDeviceInvitationParams) (int64, error) {
+	result, err := q.db.Exec(ctx, claimIosDeviceInvitation, arg.ID, arg.ClaimToken)
 	if err != nil {
 		return 0, err
 	}
 	return result.RowsAffected(), nil
 }
 
-const consumeIosDeviceInvitation = `-- name: ConsumeIosDeviceInvitation :exec
-UPDATE ios_device_invitations SET consumed_at = now(), registration_id = $2, claimed_at = NULL
-WHERE id = $1
+const consumeIosDeviceInvitation = `-- name: ConsumeIosDeviceInvitation :execrows
+UPDATE ios_device_invitations SET consumed_at = now(), registration_id = $2, claimed_at = NULL, claim_token = NULL
+WHERE id = $1 AND claim_token = $3 AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at > now()
 `
 
 type ConsumeIosDeviceInvitationParams struct {
 	ID             pgtype.UUID `json:"id"`
 	RegistrationID pgtype.UUID `json:"registration_id"`
+	ClaimToken     pgtype.UUID `json:"claim_token"`
 }
 
-func (q *Queries) ConsumeIosDeviceInvitation(ctx context.Context, arg ConsumeIosDeviceInvitationParams) error {
-	_, err := q.db.Exec(ctx, consumeIosDeviceInvitation, arg.ID, arg.RegistrationID)
-	return err
+func (q *Queries) ConsumeIosDeviceInvitation(ctx context.Context, arg ConsumeIosDeviceInvitationParams) (int64, error) {
+	result, err := q.db.Exec(ctx, consumeIosDeviceInvitation, arg.ID, arg.RegistrationID, arg.ClaimToken)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const getIosDeviceRegistration = `-- name: GetIosDeviceRegistration :one
@@ -240,14 +249,22 @@ func (q *Queries) ListRegisteredIosDevices(ctx context.Context, appID pgtype.UUI
 	return items, nil
 }
 
-const releaseIosDeviceInvitation = `-- name: ReleaseIosDeviceInvitation :exec
-UPDATE ios_device_invitations SET claimed_at = NULL
-WHERE id = $1
+const releaseIosDeviceInvitation = `-- name: ReleaseIosDeviceInvitation :execrows
+UPDATE ios_device_invitations SET claimed_at = NULL, claim_token = NULL
+WHERE id = $1 AND claim_token = $2
 `
 
-func (q *Queries) ReleaseIosDeviceInvitation(ctx context.Context, id pgtype.UUID) error {
-	_, err := q.db.Exec(ctx, releaseIosDeviceInvitation, id)
-	return err
+type ReleaseIosDeviceInvitationParams struct {
+	ID         pgtype.UUID `json:"id"`
+	ClaimToken pgtype.UUID `json:"claim_token"`
+}
+
+func (q *Queries) ReleaseIosDeviceInvitation(ctx context.Context, arg ReleaseIosDeviceInvitationParams) (int64, error) {
+	result, err := q.db.Exec(ctx, releaseIosDeviceInvitation, arg.ID, arg.ClaimToken)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const resolveIosDeviceInvitation = `-- name: ResolveIosDeviceInvitation :one

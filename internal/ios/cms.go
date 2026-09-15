@@ -36,8 +36,11 @@ func (e berElement) constructed() bool {
 // signedDataContent extracts the encapsulated content of a CMS SignedData
 // blob, accepting the indefinite BER lengths that encoding/asn1 rejects.
 func signedDataContent(data []byte) ([]byte, error) {
-	root, _, err := readBER(data, 0)
-	if err != nil {
+	root, rest, err := readBER(data, 0)
+	if err != nil || len(rest) != 0 {
+		return nil, errMalformed
+	}
+	if err := validateBER(root, 0); err != nil {
 		return nil, err
 	}
 	contentInfo, err := children(root, tagSequence, 2)
@@ -61,6 +64,27 @@ func signedDataContent(data []byte) ([]byte, error) {
 		return nil, err
 	}
 	return octets(explicitContent[0])
+}
+
+// validateBER bounds nesting throughout the envelope before handing it to the signature parser.
+func validateBER(element berElement, depth int) error {
+	if depth > maxBERDepth {
+		return errMalformed
+	}
+	if !element.constructed() {
+		return nil
+	}
+	for rest := element.content; len(rest) > 0; {
+		child, next, err := readBER(rest, depth+1)
+		if err != nil {
+			return err
+		}
+		if err := validateBER(child, depth+1); err != nil {
+			return err
+		}
+		rest = next
+	}
+	return nil
 }
 
 func readBER(data []byte, depth int) (berElement, []byte, error) {

@@ -99,7 +99,10 @@ type resource[T any] struct {
 }
 
 type listDocument[T any] struct {
-	Data []resource[T] `json:"data"`
+	Data  []resource[T] `json:"data"`
+	Links struct {
+		Next string `json:"next"`
+	} `json:"links"`
 }
 
 type document[T any] struct {
@@ -129,14 +132,15 @@ func (c *Client) VerifyAccess(ctx context.Context) error {
 	return c.do(ctx, http.MethodGet, "/bundleIds?limit=1", nil, nil)
 }
 
+// ListDistributionCertificates downloads every page of the team's distribution certificates.
 func (c *Client) ListDistributionCertificates(ctx context.Context) ([]Certificate, error) {
 	query := url.Values{"filter[certificateType]": {"DISTRIBUTION,IOS_DISTRIBUTION"}, "limit": {"200"}}
-	var list listDocument[certificateAttributes]
-	if err := c.do(ctx, http.MethodGet, "/certificates?"+query.Encode(), nil, &list); err != nil {
+	resources, err := listResources[certificateAttributes](ctx, c, "/certificates?"+query.Encode())
+	if err != nil {
 		return nil, err
 	}
-	certificates := make([]Certificate, len(list.Data))
-	for i, certificate := range list.Data {
+	certificates := make([]Certificate, len(resources))
+	for i, certificate := range resources {
 		certificates[i] = Certificate{ID: certificate.ID, DER: certificate.Attributes.CertificateContent}
 	}
 	return certificates, nil
@@ -145,17 +149,46 @@ func (c *Client) ListDistributionCertificates(ctx context.Context) ([]Certificat
 // ListIOSDevices returns the team's devices that are not Macs, enabled or not.
 func (c *Client) ListIOSDevices(ctx context.Context) ([]Device, error) {
 	query := url.Values{"limit": {"200"}}
-	var list listDocument[deviceAttributes]
-	if err := c.do(ctx, http.MethodGet, "/devices?"+query.Encode(), nil, &list); err != nil {
+	resources, err := listResources[deviceAttributes](ctx, c, "/devices?"+query.Encode())
+	if err != nil {
 		return nil, err
 	}
 	devices := []Device{}
-	for _, device := range list.Data {
+	for _, device := range resources {
 		if device.Attributes.Platform != "MAC_OS" && device.Attributes.DeviceClass != "MAC" {
 			devices = append(devices, device.Attributes.device(device.ID))
 		}
 	}
 	return devices, nil
+}
+
+// listResources follows Apple's next links and fails instead of returning a partial list.
+func listResources[T any](ctx context.Context, client *Client, path string) ([]resource[T], error) {
+	pageURL, err := url.Parse(client.baseURL + path)
+	if err != nil {
+		return nil, err
+	}
+	var resources []resource[T]
+	seen := map[string]bool{}
+	for {
+		if seen[pageURL.String()] {
+			return nil, fmt.Errorf("%w: repeated pagination link", ErrUnavailable)
+		}
+		seen[pageURL.String()] = true
+		var page listDocument[T]
+		if err := client.do(ctx, http.MethodGet, pageURL.String(), nil, &page); err != nil {
+			return nil, err
+		}
+		resources = append(resources, page.Data...)
+		if page.Links.Next == "" {
+			return resources, nil
+		}
+		next, err := url.Parse(page.Links.Next)
+		if err != nil {
+			return nil, fmt.Errorf("%w: invalid pagination link", ErrUnavailable)
+		}
+		pageURL = pageURL.ResolveReference(next)
+	}
 }
 
 // FindDevice returns the Apple id of the device with this UDID, or "" when it is not registered.
@@ -213,6 +246,25 @@ func (c *Client) token() (string, error) {
 }
 
 func (c *Client) do(ctx context.Context, method, path string, body any, out any) error {
+	base, err := url.Parse(c.baseURL)
+	if err != nil {
+		return err
+	}
+	requestURL, err := url.Parse(path)
+	if err != nil {
+		return err
+	}
+	if !requestURL.IsAbs() {
+		requestURL, err = url.Parse(c.baseURL + path)
+		if err != nil {
+			return err
+		}
+	}
+	// A next link must never send the team's bearer token to another origin.
+	if requestURL.Scheme != base.Scheme || requestURL.Host != base.Host || requestURL.User != nil ||
+		!strings.HasPrefix(requestURL.Path, strings.TrimRight(base.Path, "/")+"/") {
+		return fmt.Errorf("%w: pagination link outside the API", ErrUnavailable)
+	}
 	token, err := c.token()
 	if err != nil {
 		return fmt.Errorf("sign app store connect token: %w", err)
@@ -225,7 +277,7 @@ func (c *Client) do(ctx context.Context, method, path string, body any, out any)
 		}
 		payload = bytes.NewReader(encoded)
 	}
-	request, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, payload)
+	request, err := http.NewRequestWithContext(ctx, method, requestURL.String(), payload)
 	if err != nil {
 		return err
 	}

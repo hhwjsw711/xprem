@@ -358,6 +358,7 @@ type IosDeviceInvitation struct {
 	ClaimedAt             pgtype.Timestamptz `json:"claimed_at"`
 	ConsumedAt            pgtype.Timestamptz `json:"consumed_at"`
 	RegistrationID        pgtype.UUID        `json:"registration_id"`
+	ClaimToken            pgtype.UUID        `json:"claim_token"`
 }
 
 type IosDeviceRegistration struct {

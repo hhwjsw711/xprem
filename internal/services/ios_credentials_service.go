@@ -5,6 +5,7 @@ import (
 	"time"
 	"xprem/internal/appstoreconnect"
 	"xprem/internal/auditlog"
+	"xprem/internal/ios"
 	"xprem/internal/store"
 	"xprem/internal/types"
 	"xprem/internal/validation"
@@ -25,9 +26,9 @@ type IosCredentialsRepository interface {
 	ListIosDeviceInvitations(ctx context.Context, appId string) ([]store.IosDeviceInvitation, error)
 	RevokeIosDeviceInvitation(ctx context.Context, appId string, invitationId string) (string, error)
 	ResolveIosDeviceInvitation(ctx context.Context, tokenHash string) (*store.ActiveIosDeviceInvitation, error)
-	ClaimIosDeviceInvitation(ctx context.Context, invitationId string) (bool, error)
-	FinishIosDeviceRegistration(ctx context.Context, registration store.IosDeviceRegistration) (string, error)
-	ReleaseIosDeviceInvitation(ctx context.Context, invitationId string) error
+	ClaimIosDeviceInvitation(ctx context.Context, invitationId string) (string, error)
+	FinishIosDeviceRegistration(ctx context.Context, registration store.IosDeviceRegistration, claimToken string) (string, error)
+	ReleaseIosDeviceInvitation(ctx context.Context, invitationId string, claimToken string) error
 	GetIosDeviceRegistration(ctx context.Context, tokenHash string, registrationId string) (*store.IosDeviceRegistration, error)
 	ListRegisteredIosDevices(ctx context.Context, appId string) ([]store.RegisteredIosDevice, error)
 }
@@ -69,6 +70,7 @@ type IosCredentialsService struct {
 	// credential changes leave no events.
 	onAuditEvent           auditlog.RecordFunc
 	appStoreConnectBaseURL string
+	deviceResponseVerifier *ios.DeviceResponseVerifier
 }
 
 // NewIosCredentialsService builds the service; nil repos (stateless mode) make
@@ -89,6 +91,11 @@ func (s *IosCredentialsService) SetOnAuditEvent(record auditlog.RecordFunc) {
 // SetAppStoreConnectBaseURL points the service at another App Store Connect API.
 func (s *IosCredentialsService) SetAppStoreConnectBaseURL(baseURL string) {
 	s.appStoreConnectBaseURL = baseURL
+}
+
+// SetDeviceResponseVerifier selects the device trust anchor for integration tests; nil uses Apple's CA.
+func (s *IosCredentialsService) SetDeviceResponseVerifier(verifier *ios.DeviceResponseVerifier) {
+	s.deviceResponseVerifier = verifier
 }
 
 // canonicalAppID binds sealed app blobs to one spelling of the app uuid.

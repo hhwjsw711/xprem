@@ -3,6 +3,8 @@ package store_test
 import (
 	"bytes"
 	"context"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -11,18 +13,21 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 	"xprem/internal/appstoreconnect"
 	"xprem/internal/appstoreconnect/appstoreconnecttest"
 	"xprem/internal/auditlog"
 	"xprem/internal/database"
 	"xprem/internal/database/postgres/pgdb"
 	dashhandlers "xprem/internal/handlers/dashboard"
+	"xprem/internal/ios"
 	"xprem/internal/ios/iostest"
 	"xprem/internal/services"
 	"xprem/internal/store"
 	"xprem/internal/types"
 	"xprem/internal/validation"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -33,13 +38,21 @@ const testBaseURL = "https://ota.example.com"
 
 type deviceRegistrationFixture struct {
 	*appStoreConnectFixture
-	router *mux.Router
+	router   *mux.Router
+	identity iostest.Identity
 }
 
 func newDeviceRegistrationFixture(t *testing.T) *deviceRegistrationFixture {
 	t.Helper()
 	t.Setenv("BASE_URL", testBaseURL)
 	f := &deviceRegistrationFixture{appStoreConnectFixture: newAppStoreConnectFixture(t), router: mux.NewRouter()}
+	authority := iostest.NewDeviceAuthority()
+	f.identity = iostest.NewIssuedIdentity(&authority, &x509.Certificate{
+		Subject:   pkix.Name{CommonName: "Test iPhone"},
+		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour),
+		KeyUsage: x509.KeyUsageDigitalSignature,
+	})
+	f.service.SetDeviceResponseVerifier(ios.NewDeviceResponseVerifier(authority.Certificate))
 	handler := dashhandlers.NewIosCredentialsHandler(f.service)
 	f.router.HandleFunc("/device-registrations/{TOKEN}", handler.PublicIosDeviceInvitationHandler).Methods(http.MethodGet)
 	f.router.HandleFunc("/device-registrations/{TOKEN}/profile", handler.IosDeviceRegistrationProfileHandler).Methods(http.MethodGet)
@@ -76,11 +89,11 @@ func (f *deviceRegistrationFixture) challenge(t *testing.T, token string) string
 	return profile.PayloadContent.Challenge
 }
 
-func deviceResponseBody(t *testing.T, attributes map[string]string) []byte {
+func (f *deviceRegistrationFixture) deviceResponseBody(t *testing.T, attributes map[string]string) []byte {
 	t.Helper()
 	content, err := plist.Marshal(attributes, plist.XMLFormat)
 	require.NoError(t, err)
-	return iostest.SignedData(content, true)
+	return f.identity.SignResponse(content, true)
 }
 
 // enroll posts a device response and returns the redirect target's query.
@@ -170,7 +183,7 @@ func TestIosDeviceInvitationLifecycle(t *testing.T) {
 			assert.Equal(t, http.StatusNotFound, response.Code, name+path)
 			assert.JSONEq(t, `{"error":"invalid-link"}`, response.Body.String(), name+path)
 		}
-		assert.Equal(t, "invalid-link", f.enroll(t, invalid, deviceResponseBody(t, map[string]string{"UDID": "UDID-1"})).Get("error"), name)
+		assert.Equal(t, "invalid-link", f.enroll(t, invalid, f.deviceResponseBody(t, map[string]string{"UDID": "UDID-1"})).Get("error"), name)
 	}
 
 	invitations, err = f.service.ListIosDeviceInvitations(ctx, f.appId)
@@ -205,19 +218,19 @@ func TestIosDeviceEnrollment(t *testing.T) {
 	token := f.createInvitation(t, "QA team")
 	challenge := f.challenge(t, token)
 
-	assert.Equal(t, "invalid-link", f.enroll(t, token, deviceResponseBody(t, map[string]string{"UDID": "UDID-NEW", "CHALLENGE": "wrong"})).Get("error"), "wrong challenge")
+	assert.Equal(t, "invalid-link", f.enroll(t, token, f.deviceResponseBody(t, map[string]string{"UDID": "UDID-NEW", "CHALLENGE": "wrong"})).Get("error"), "wrong challenge")
 	assert.Equal(t, "invalid-link", f.enroll(t, token, []byte("not a device response")).Get("error"))
 	assert.Equal(t, "invalid-link", f.enroll(t, token, bytes.Repeat([]byte("x"), 64<<10+1)).Get("error"), "oversized body")
 
 	f.apple.DeviceLimitReached = true
-	limited := f.enroll(t, token, deviceResponseBody(t, map[string]string{"UDID": "UDID-LIMIT", "PRODUCT": "iPhone16,1", "CHALLENGE": challenge}))
+	limited := f.enroll(t, token, f.deviceResponseBody(t, map[string]string{"UDID": "UDID-LIMIT", "PRODUCT": "iPhone16,1", "CHALLENGE": challenge}))
 	failed := f.publicRegistration(t, token, limited.Get("registration"))
 	assert.Equal(t, "failed", failed["status"])
-	assert.Contains(t, failed["error"], "maximum number of registered iPhone devices")
+	assert.Equal(t, "Apple refused this iPhone. Contact the app administrator.", failed["error"])
 	assert.Equal(t, http.StatusOK, f.do(http.MethodGet, "/device-registrations/"+token, nil).Code, "a failed registration does not use the link")
 	f.apple.DeviceLimitReached = false
 
-	created := f.enroll(t, token, deviceResponseBody(t, map[string]string{
+	created := f.enroll(t, token, f.deviceResponseBody(t, map[string]string{
 		"UDID": "UDID-NEW", "PRODUCT": "iPhone15,2", "VERSION": "22A3354", "CHALLENGE": challenge,
 	}))
 	require.NotEmpty(t, created.Get("registration"))
@@ -233,7 +246,7 @@ func TestIosDeviceEnrollment(t *testing.T) {
 		assert.Equal(t, http.StatusGone, response.Code, path)
 		assert.JSONEq(t, `{"error":"used"}`, response.Body.String(), path)
 	}
-	assert.Equal(t, "used", f.enroll(t, token, deviceResponseBody(t, map[string]string{"UDID": "UDID-OTHER", "CHALLENGE": challenge})).Get("error"))
+	assert.Equal(t, "used", f.enroll(t, token, f.deviceResponseBody(t, map[string]string{"UDID": "UDID-OTHER", "CHALLENGE": challenge})).Get("error"))
 	assert.Equal(t, "registered", f.publicRegistration(t, token, created.Get("registration"))["status"], "the outcome stays readable once the link is used")
 	for _, registrationId := range []string{created.Get("registration"), limited.Get("registration")} {
 		response := f.do(http.MethodGet, "/device-registrations/"+token+"/registrations/"+registrationId, nil)
@@ -241,7 +254,7 @@ func TestIosDeviceEnrollment(t *testing.T) {
 	}
 
 	janeToken := f.createInvitation(t, "Jane")
-	already := f.enroll(t, janeToken, deviceResponseBody(t, map[string]string{
+	already := f.enroll(t, janeToken, f.deviceResponseBody(t, map[string]string{
 		"UDID": "UDID-EXISTING", "PRODUCT": "iPhone14,5", "VERSION": "23A341", "DEVICE_NAME": "Jane's iPhone", "CHALLENGE": f.challenge(t, janeToken),
 	}))
 	assert.Equal(t, "registered", f.publicRegistration(t, janeToken, already.Get("registration"))["status"])
@@ -293,26 +306,26 @@ func TestIosDeviceInvitationIsSingleUse(t *testing.T) {
 	invitations, err := f.service.ListIosDeviceInvitations(ctx, f.appId)
 	require.NoError(t, err)
 	invitationId := invitations[0].Id
-	claimed, err := credentials.ClaimIosDeviceInvitation(ctx, invitationId)
+	claimToken, err := credentials.ClaimIosDeviceInvitation(ctx, invitationId)
 	require.NoError(t, err)
-	assert.True(t, claimed)
-	claimed, err = credentials.ClaimIosDeviceInvitation(ctx, invitationId)
+	assert.NotEmpty(t, claimToken)
+	otherClaim, err := credentials.ClaimIosDeviceInvitation(ctx, invitationId)
 	require.NoError(t, err)
-	assert.False(t, claimed, "a claimed link cannot be claimed again")
-	assert.Equal(t, "used", f.enroll(t, token, deviceResponseBody(t, map[string]string{"UDID": "UDID-WAITING", "CHALLENGE": challenge})).Get("error"), "an enrollment in progress holds the link")
-	require.NoError(t, credentials.ReleaseIosDeviceInvitation(ctx, invitationId))
+	assert.Empty(t, otherClaim, "a claimed link cannot be claimed again")
+	assert.Equal(t, "used", f.enroll(t, token, f.deviceResponseBody(t, map[string]string{"UDID": "UDID-WAITING", "CHALLENGE": challenge})).Get("error"), "an enrollment in progress holds the link")
+	require.NoError(t, credentials.ReleaseIosDeviceInvitation(ctx, invitationId, claimToken))
 	_, err = f.pool.Exec(ctx, "UPDATE ios_device_invitations SET claimed_at = now() - interval '6 minutes' WHERE id = $1", invitationId)
 	require.NoError(t, err)
-	claimed, err = credentials.ClaimIosDeviceInvitation(ctx, invitationId)
+	claimToken, err = credentials.ClaimIosDeviceInvitation(ctx, invitationId)
 	require.NoError(t, err)
-	assert.True(t, claimed, "an abandoned claim expires")
-	require.NoError(t, credentials.ReleaseIosDeviceInvitation(ctx, invitationId))
+	assert.NotEmpty(t, claimToken, "an abandoned claim expires")
+	require.NoError(t, credentials.ReleaseIosDeviceInvitation(ctx, invitationId, claimToken))
 
 	const enrollments = 8
 	locations := make(chan string, enrollments)
 	var group sync.WaitGroup
 	for i := range enrollments {
-		body := deviceResponseBody(t, map[string]string{"UDID": fmt.Sprintf("UDID-CONCURRENT-%d", i), "CHALLENGE": challenge})
+		body := f.deviceResponseBody(t, map[string]string{"UDID": fmt.Sprintf("UDID-CONCURRENT-%d", i), "CHALLENGE": challenge})
 		group.Add(1)
 		go func() {
 			defer group.Done()
@@ -336,6 +349,76 @@ func TestIosDeviceInvitationIsSingleUse(t *testing.T) {
 	require.NoError(t, f.pool.QueryRow(ctx, "SELECT COUNT(*) FROM ios_device_registrations WHERE invitation_id = $1 AND status = 'registered'", invitationId).Scan(&registrations))
 	assert.Equal(t, 1, registrations)
 	assert.Equal(t, 1, f.apple.RequestCount("POST /v1/devices"))
+}
+
+// TestIosDeviceInvitationRejectsStaleOwners covers workers resuming after a claim is replaced.
+func TestIosDeviceInvitationRejectsStaleOwners(t *testing.T) {
+	for _, status := range []types.IosDeviceRegistrationStatus{types.IosDeviceRegistered, types.IosDeviceRegistrationFailed} {
+		t.Run(string(status), func(t *testing.T) {
+			f := newDeviceRegistrationFixture(t)
+			ctx := context.Background()
+			f.saveKey(t, f.appId)
+			f.createInvitation(t, "")
+			invitations, err := f.service.ListIosDeviceInvitations(ctx, f.appId)
+			require.NoError(t, err)
+			invitationID := invitations[0].Id
+			credentials := store.NewPostgresIosCredentialsStore(&database.Engine{Queries: pgdb.New(f.pool), DB: f.pool})
+			first, err := credentials.ClaimIosDeviceInvitation(ctx, invitationID)
+			require.NoError(t, err)
+			require.NotEmpty(t, first)
+			_, err = f.pool.Exec(ctx, "UPDATE ios_device_invitations SET claimed_at = now() - interval '6 minutes' WHERE id = $1", invitationID)
+			require.NoError(t, err)
+			second, err := credentials.ClaimIosDeviceInvitation(ctx, invitationID)
+			require.NoError(t, err)
+			require.NotEmpty(t, second)
+			require.NotEqual(t, first, second)
+			registration := store.IosDeviceRegistration{InvitationId: invitationID, UDID: uuid.NewString(), Status: status}
+			_, err = credentials.FinishIosDeviceRegistration(ctx, registration, first)
+			require.ErrorIs(t, err, store.ErrIosDeviceInvitationClaimLost)
+			require.NoError(t, credentials.ReleaseIosDeviceInvitation(ctx, invitationID, first))
+			var activeToken string
+			require.NoError(t, f.pool.QueryRow(ctx, "SELECT claim_token::text FROM ios_device_invitations WHERE id = $1 AND consumed_at IS NULL AND claimed_at IS NOT NULL", invitationID).Scan(&activeToken))
+			assert.Equal(t, second, activeToken)
+			var count int
+			require.NoError(t, f.pool.QueryRow(ctx, "SELECT count(*) FROM ios_device_registrations WHERE invitation_id = $1", invitationID).Scan(&count))
+			assert.Zero(t, count, "stale completions must roll back the registration")
+			registration.Status = types.IosDeviceRegistered
+			_, err = credentials.FinishIosDeviceRegistration(ctx, registration, second)
+			require.NoError(t, err)
+			_, err = credentials.FinishIosDeviceRegistration(ctx, registration, second)
+			require.ErrorIs(t, err, store.ErrIosDeviceInvitationClaimLost, "a completed claim cannot be reused")
+		})
+	}
+}
+
+// TestIosDeviceConflictDoesNotExposeUDID covers the conflict fallback when re-finding fails.
+func TestIosDeviceConflictDoesNotExposeUDID(t *testing.T) {
+	f := newDeviceRegistrationFixture(t)
+	f.saveKey(t, f.appId)
+	f.apple.DeviceConflictDetail = "A device with number 'UDID-PRIVATE' already exists on this team."
+	token := f.createInvitation(t, "")
+	redirect := f.enroll(t, token, f.deviceResponseBody(t, map[string]string{"UDID": "UDID-PRIVATE", "CHALLENGE": f.challenge(t, token)}))
+	registration := f.publicRegistration(t, token, redirect.Get("registration"))
+	assert.Equal(t, "failed", registration["status"])
+	assert.NotContains(t, registration["error"], "UDID-PRIVATE")
+	assert.Equal(t, "Apple refused this iPhone. Contact the app administrator.", registration["error"])
+}
+
+// TestIosEnrollmentRejectsUnverifiedDevice proves unsigned responses cannot reach Apple or consume a link.
+func TestIosEnrollmentRejectsUnverifiedDevice(t *testing.T) {
+	f := newDeviceRegistrationFixture(t)
+	f.saveKey(t, f.appId)
+	token := f.createInvitation(t, "")
+	attributes := map[string]string{"UDID": "invented", "CHALLENGE": f.challenge(t, token)}
+	content, err := plist.Marshal(attributes, plist.XMLFormat)
+	require.NoError(t, err)
+	unsigned := iostest.SignedData(content, true)
+	assert.Equal(t, "invalid-link", f.enroll(t, token, unsigned).Get("error"))
+	assert.Zero(t, f.apple.RequestCount("POST /v1/devices"))
+	assert.False(t, f.hasRegistration(t, "invented"))
+	assert.Equal(t, http.StatusOK, f.do(http.MethodGet, "/device-registrations/"+token, nil).Code)
+	valid := f.enroll(t, token, f.deviceResponseBody(t, attributes))
+	assert.NotEmpty(t, valid.Get("registration"), "rejecting an unsigned request leaves the invitation usable")
 }
 
 func TestAppleDeviceStatus(t *testing.T) {

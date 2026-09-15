@@ -424,15 +424,19 @@ func (s *IosCredentialsService) EnrollIosDevice(ctx context.Context, token strin
 	if err != nil {
 		return "", err
 	}
-	attributes, err := ios.ParseDeviceResponse(body, invitation.Challenge)
+	parseResponse := ios.ParseDeviceResponse
+	if s.deviceResponseVerifier != nil {
+		parseResponse = s.deviceResponseVerifier.Parse
+	}
+	attributes, err := parseResponse(body, invitation.Challenge)
 	if err != nil {
 		return "", validation.Errorf("", "invalid device response")
 	}
-	claimed, err := s.repo.ClaimIosDeviceInvitation(ctx, invitation.Id)
+	claimToken, err := s.repo.ClaimIosDeviceInvitation(ctx, invitation.Id)
 	if err != nil {
 		return "", err
 	}
-	if !claimed {
+	if claimToken == "" {
 		return "", ErrIosDeviceInvitationUsed
 	}
 	registration := store.IosDeviceRegistration{
@@ -451,10 +455,13 @@ func (s *IosCredentialsService) EnrollIosDevice(ctx context.Context, token strin
 	} else {
 		registration.AppleDeviceId = &appleDeviceId
 	}
-	registrationId, err := s.repo.FinishIosDeviceRegistration(ctx, registration)
+	registrationId, err := s.repo.FinishIosDeviceRegistration(ctx, registration, claimToken)
 	if err != nil {
-		if releaseErr := s.repo.ReleaseIosDeviceInvitation(context.WithoutCancel(ctx), invitation.Id); releaseErr != nil {
+		if releaseErr := s.repo.ReleaseIosDeviceInvitation(context.WithoutCancel(ctx), invitation.Id, claimToken); releaseErr != nil {
 			log.Printf("ios device invitation release failed: %v", releaseErr)
+		}
+		if errors.Is(err, store.ErrIosDeviceInvitationClaimLost) {
+			return "", ErrIosDeviceInvitationUsed
 		}
 		return "", err
 	}
@@ -494,7 +501,8 @@ func (s *IosCredentialsService) registerAppleDevice(ctx context.Context, appId s
 		if existing, findErr := client.FindDevice(ctx, udid); findErr == nil && existing != "" {
 			return existing, nil
 		}
-		return "", validation.Errorf("", "Apple refused this iPhone: %s", apiErr.Detail)
+		log.Printf("ios device registration conflict: %s", apiErr.Detail)
+		return "", validation.Errorf("", "Apple refused this iPhone. Contact the app administrator.")
 	}
 	if err != nil {
 		return "", appStoreConnectError(err)

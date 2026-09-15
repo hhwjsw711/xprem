@@ -35,12 +35,14 @@ type Server struct {
 	// Status, when set, answers every authenticated request with that status.
 	Status int
 	// DeviceLimitReached makes device registration answer 409.
-	DeviceLimitReached  bool
-	Devices             []Device
-	requests            []string
-	certificates        map[string][]byte
-	certificatesCreated int
-	publicKey           *ecdsa.PublicKey
+	DeviceLimitReached bool
+	// DeviceConflictDetail injects a registration conflict while lookups still return no device.
+	DeviceConflictDetail string
+	Devices              []Device
+	requests             []string
+	certificates         map[string][]byte
+	certificatesCreated  int
+	publicKey            *ecdsa.PublicKey
 }
 
 // Device is a registered device with the attributes Apple lists.
@@ -190,6 +192,10 @@ func (s *Server) createDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	attributes := body.Data.Attributes
+	if s.DeviceConflictDetail != "" {
+		writeError(w, http.StatusConflict, "ENTITY_ERROR.ATTRIBUTE.INVALID", s.DeviceConflictDetail)
+		return
+	}
 	if attributes.Name == "" || len([]rune(attributes.Name)) > 50 || attributes.Platform != "IOS" || attributes.UDID == "" {
 		writeError(w, http.StatusConflict, "ENTITY_ERROR.ATTRIBUTE.INVALID", "invalid device attributes")
 		return

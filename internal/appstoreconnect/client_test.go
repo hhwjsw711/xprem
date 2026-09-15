@@ -7,15 +7,80 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
+	"encoding/json"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"xprem/internal/appstoreconnect/appstoreconnecttest"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// TestClientFollowsListPages checks aggregation, filtering and absolute pagination links.
+func TestClientFollowsListPages(t *testing.T) {
+	for _, endpoint := range []string{"devices", "certificates"} {
+		t.Run(endpoint, func(t *testing.T) {
+			requests := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests++
+				assert.Equal(t, "/v1/"+endpoint, r.URL.Path)
+				assert.Equal(t, "200", r.URL.Query().Get("limit"))
+				if endpoint == "certificates" {
+					assert.Equal(t, "DISTRIBUTION,IOS_DISTRIBUTION", r.URL.Query().Get("filter[certificateType]"))
+				}
+				page := r.URL.Query().Get("cursor")
+				next := ""
+				if page == "" {
+					query := r.URL.Query()
+					query.Set("cursor", "page-2")
+					next = "http://" + r.Host + r.URL.Path + "?" + query.Encode()
+				}
+				attributes := map[string]any{"platform": "IOS", "certificateContent": []byte("certificate-" + page)}
+				entries := []map[string]any{{"id": "id-" + page, "attributes": attributes}}
+				if endpoint == "devices" && page != "" {
+					entries = append(entries, map[string]any{"id": "mac", "attributes": map[string]string{"platform": "MAC_OS"}})
+				}
+				require.NoError(t, json.NewEncoder(w).Encode(map[string]any{"data": entries, "links": map[string]string{"next": next}}))
+			}))
+			defer server.Close()
+			key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+			require.NoError(t, err)
+			client := NewClient(server.URL+"/v1", "key", "issuer", key)
+			if endpoint == "devices" {
+				devices, err := client.ListIOSDevices(context.Background())
+				require.NoError(t, err)
+				require.Len(t, devices, 2)
+				assert.Equal(t, "id-page-2", devices[1].ID)
+			} else {
+				certificates, err := client.ListDistributionCertificates(context.Background())
+				require.NoError(t, err)
+				require.Len(t, certificates, 2)
+				assert.Equal(t, []byte("certificate-page-2"), certificates[1].DER)
+			}
+			assert.Equal(t, 2, requests)
+		})
+	}
+}
+
+// TestClientRejectsUnsafePagination prevents bearer tokens leaking through next links.
+func TestClientRejectsUnsafePagination(t *testing.T) {
+	for _, next := range []string{"https://other.example/v1/devices", "//other.example/v1/devices", "/v1/devices?limit=200"} {
+		t.Run(next, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				fmt.Fprintf(w, `{"data":[],"links":{"next":%q}}`, next)
+			}))
+			defer server.Close()
+			key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+			require.NoError(t, err)
+			_, err = NewClient(server.URL+"/v1", "key", "issuer", key).ListIOSDevices(context.Background())
+			require.Error(t, err)
+		})
+	}
+}
 
 func pemPrivateKey(t *testing.T, key any) string {
 	t.Helper()

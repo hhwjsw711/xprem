@@ -2,6 +2,7 @@
 package iostest
 
 import (
+	"bytes"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -11,6 +12,7 @@ import (
 	"math/big"
 	"time"
 
+	"github.com/smallstep/pkcs7"
 	pkcs12 "software.sslmate.com/src/go-pkcs12"
 )
 
@@ -59,6 +61,86 @@ func (i Identity) P12(password string) []byte {
 		panic(err)
 	}
 	return data
+}
+
+// NewIssuedIdentity signs template with issuer, or self-signs it when issuer is nil.
+func NewIssuedIdentity(issuer *Identity, template *x509.Certificate) Identity {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		panic(err)
+	}
+	template.SerialNumber, err = rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+	if err != nil {
+		panic(err)
+	}
+	parent, signingKey := template, key
+	if issuer != nil {
+		parent, signingKey = issuer.Certificate, issuer.Key
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, parent, &key.PublicKey, signingKey)
+	if err != nil {
+		panic(err)
+	}
+	certificate, err := x509.ParseCertificate(der)
+	if err != nil {
+		panic(err)
+	}
+	return Identity{Key: key, Certificate: certificate}
+}
+
+// NewDeviceAuthority creates a test-only CA with the same subject as Apple's device CA.
+func NewDeviceAuthority() Identity {
+	return NewIssuedIdentity(nil, &x509.Certificate{
+		Subject:   pkix.Name{CommonName: "Apple iPhone Device CA"},
+		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour),
+		IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign,
+	})
+}
+
+// SignResponse produces a genuine CMS signature, optionally using iOS-style indefinite BER.
+func (i Identity) SignResponse(content []byte, indefinite bool) []byte {
+	signed, err := pkcs7.NewSignedData(content)
+	if err != nil {
+		panic(err)
+	}
+	signed.SetDigestAlgorithm(pkcs7.OIDDigestAlgorithmSHA256)
+	if err := signed.AddSigner(i.Certificate, i.Key, pkcs7.SignerInfoConfig{}); err != nil {
+		panic(err)
+	}
+	der, err := signed.Finish()
+	if err != nil {
+		panic(err)
+	}
+	if indefinite {
+		return indefiniteResponse(der)
+	}
+	return der
+}
+
+// indefiniteResponse re-encodes constructed DER values and chunks the encapsulated plist.
+func indefiniteResponse(der []byte) []byte {
+	var element asn1.RawValue
+	if _, err := asn1.Unmarshal(der, &element); err != nil {
+		panic(err)
+	}
+	if element.Class == asn1.ClassUniversal && element.Tag == asn1.TagOctetString && bytes.HasPrefix(element.Bytes, []byte("<?xml")) && len(element.Bytes) > 100 {
+		return indefiniteTLV(0x24, concat(definiteTLV(0x04, element.Bytes[:100]), definiteTLV(0x04, element.Bytes[100:])))
+	}
+	if !element.IsCompound {
+		return der
+	}
+	var children []byte
+	for remaining := element.Bytes; len(remaining) > 0; {
+		var child asn1.RawValue
+		rest, err := asn1.Unmarshal(remaining, &child)
+		if err != nil {
+			panic(err)
+		}
+		// A BER-to-DER parser restores the original certificate and signed-attribute bytes.
+		children = append(children, indefiniteResponse(child.FullBytes)...)
+		remaining = rest
+	}
+	return indefiniteTLV(der[0], children)
 }
 
 // SignedData wraps content in an unsigned CMS SignedData envelope. With

@@ -1,7 +1,13 @@
 package ios
 
 import (
+	"bytes"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/asn1"
+	"encoding/pem"
 	"testing"
+	"time"
 	"xprem/internal/ios/iostest"
 
 	"github.com/stretchr/testify/assert"
@@ -54,7 +60,19 @@ func deviceResponse(t *testing.T, attributes map[string]string) []byte {
 }
 
 func TestParseDeviceResponse(t *testing.T) {
-	attributes, err := ParseDeviceResponse(deviceResponse(t, map[string]string{
+	authority := iostest.NewDeviceAuthority()
+	identity := iostest.NewIssuedIdentity(&authority, &x509.Certificate{
+		Subject:   pkix.Name{CommonName: "test iPhone"},
+		NotBefore: time.Now().Add(-2 * time.Hour), NotAfter: time.Now().Add(-time.Hour),
+		KeyUsage: x509.KeyUsageDigitalSignature,
+	})
+	verifier := NewDeviceResponseVerifier(authority.Certificate)
+	sign := func(attributes map[string]string) []byte {
+		content, err := plist.Marshal(attributes, plist.XMLFormat)
+		require.NoError(t, err)
+		return identity.SignResponse(content, true)
+	}
+	attributes, err := verifier.Parse(sign(map[string]string{
 		"UDID": "00008110-000A1B2C3D4E801E", "PRODUCT": "iPhone15,2", "VERSION": "22A3354",
 		"DEVICE_NAME": "Jane's iPhone", "SERIAL": "F2LXXXXXXX", "CHALLENGE": "challenge-1",
 	}), "challenge-1")
@@ -64,7 +82,7 @@ func TestParseDeviceResponse(t *testing.T) {
 		DeviceName: "Jane's iPhone", Serial: "F2LXXXXXXX", Challenge: "challenge-1",
 	}, attributes)
 
-	withoutOptional, err := ParseDeviceResponse(deviceResponse(t, map[string]string{
+	withoutOptional, err := verifier.Parse(sign(map[string]string{
 		"UDID": "00008110-000A1B2C3D4E801E", "PRODUCT": "iPhone15,2", "VERSION": "22A3354", "CHALLENGE": "challenge-1",
 	}), "challenge-1")
 	require.NoError(t, err)
@@ -72,13 +90,73 @@ func TestParseDeviceResponse(t *testing.T) {
 	assert.Empty(t, withoutOptional.Serial)
 
 	for name, data := range map[string][]byte{
-		"wrong challenge": deviceResponse(t, map[string]string{"UDID": "UDID-1", "CHALLENGE": "other"}),
-		"no challenge":    deviceResponse(t, map[string]string{"UDID": "UDID-1"}),
-		"no udid":         deviceResponse(t, map[string]string{"CHALLENGE": "challenge-1"}),
+		"wrong challenge": sign(map[string]string{"UDID": "UDID-1", "CHALLENGE": "other"}),
+		"no challenge":    sign(map[string]string{"UDID": "UDID-1"}),
+		"no udid":         sign(map[string]string{"CHALLENGE": "challenge-1"}),
 		"not cms":         []byte("<?xml version=\"1.0\"?><plist><dict/></plist>"),
-		"not a plist":     iostest.SignedData([]byte("garbage"), false),
+		"not a plist":     identity.SignResponse([]byte("garbage"), false),
 	} {
-		_, err := ParseDeviceResponse(data, "challenge-1")
+		_, err := verifier.Parse(data, "challenge-1")
 		assert.Error(t, err, name)
 	}
+}
+
+// TestDeviceResponseSignatures rejects tampering and unauthorized signers for both supported encodings.
+func TestDeviceResponseSignatures(t *testing.T) {
+	authority := iostest.NewDeviceAuthority()
+	verifier := NewDeviceResponseVerifier(authority.Certificate)
+	content, err := plist.Marshal(map[string]string{"UDID": "real-device", "CHALLENGE": "challenge"}, plist.XMLFormat)
+	require.NoError(t, err)
+	for _, indefinite := range []bool{false, true} {
+		identity := iostest.NewIssuedIdentity(&authority, &x509.Certificate{
+			Subject: pkix.Name{CommonName: "iPhone"}, NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour),
+			KeyUsage: x509.KeyUsageDigitalSignature,
+		})
+		signed := identity.SignResponse(content, indefinite)
+		attributes, err := verifier.Parse(signed, "challenge")
+		require.NoError(t, err)
+		assert.Equal(t, "real-device", attributes.UDID)
+		for name, response := range map[string][]byte{
+			"modified content": bytes.Replace(signed, []byte("real-device"), []byte("fake-device"), 1),
+			"truncated":        signed[:len(signed)-5],
+			"trailing data":    append(append([]byte(nil), signed...), 0),
+			"unsigned":         iostest.SignedData(content, indefinite),
+		} {
+			_, err := verifier.Parse(response, "challenge")
+			require.ErrorIs(t, err, errInvalidDeviceResponse, name)
+		}
+		otherAuthority := iostest.NewDeviceAuthority()
+		_, err = NewDeviceResponseVerifier(otherAuthority.Certificate).Parse(signed, "challenge")
+		require.ErrorIs(t, err, errInvalidDeviceResponse, "same CA name with a different key")
+		_, err = ParseDeviceResponse(signed, "challenge")
+		require.ErrorIs(t, err, errInvalidDeviceResponse, "production must never trust a test CA")
+	}
+	for name, template := range map[string]*x509.Certificate{
+		"CA signer":                  {IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign},
+		"encryption only":            {KeyUsage: x509.KeyUsageKeyEncipherment},
+		"unknown critical extension": {ExtraExtensions: []pkix.Extension{{Id: asn1.ObjectIdentifier{1, 2, 3, 4}, Critical: true, Value: []byte{5, 0}}}},
+	} {
+		identity := iostest.NewIssuedIdentity(&authority, template)
+		_, err := verifier.Parse(identity.SignResponse(content, false), "challenge")
+		require.ErrorIs(t, err, errInvalidDeviceResponse, name)
+	}
+	_, err = verifier.Parse(authority.SignResponse(content, false), "challenge")
+	require.ErrorIs(t, err, errInvalidDeviceResponse, "the CA itself is not a device")
+}
+
+// TestAppleDeviceTrustAnchor checks that the embedded pin is Apple's documented device issuer.
+func TestAppleDeviceTrustAnchor(t *testing.T) {
+	block, _ := pem.Decode(appleDeviceCAPEM)
+	require.NotNil(t, block)
+	certificate, err := x509.ParseCertificate(block.Bytes)
+	require.NoError(t, err)
+	assert.Equal(t, "Apple iPhone Device CA", certificate.Subject.CommonName)
+	assert.True(t, certificate.IsCA)
+	assert.NotZero(t, certificate.KeyUsage&x509.KeyUsageCertSign)
+}
+
+// TestParseDeviceResponseRejectsUnsigned prevents a link holder fabricating device attributes.
+func TestParseDeviceResponseRejectsUnsigned(t *testing.T) {
+	_, err := ParseDeviceResponse(deviceResponse(t, map[string]string{"UDID": "invented", "CHALLENGE": "known"}), "known")
+	require.ErrorIs(t, err, errInvalidDeviceResponse)
 }

@@ -25,18 +25,18 @@ JOIN apps a ON a.id = i.app_id
 WHERE i.token_hash = $1 AND i.revoked_at IS NULL AND i.expires_at > now();
 
 -- name: ClaimIosDeviceInvitation :execrows
--- A claim older than five minutes belongs to an enrollment that never finished.
-UPDATE ios_device_invitations SET claimed_at = now()
+-- A claim older than five minutes may be reclaimed; its old owner can no longer finish or release it.
+UPDATE ios_device_invitations SET claimed_at = now(), claim_token = $2
 WHERE id = $1 AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at > now()
     AND (claimed_at IS NULL OR claimed_at < now() - interval '5 minutes');
 
--- name: ConsumeIosDeviceInvitation :exec
-UPDATE ios_device_invitations SET consumed_at = now(), registration_id = $2, claimed_at = NULL
-WHERE id = $1;
+-- name: ConsumeIosDeviceInvitation :execrows
+UPDATE ios_device_invitations SET consumed_at = now(), registration_id = $2, claimed_at = NULL, claim_token = NULL
+WHERE id = $1 AND claim_token = $3 AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at > now();
 
--- name: ReleaseIosDeviceInvitation :exec
-UPDATE ios_device_invitations SET claimed_at = NULL
-WHERE id = $1;
+-- name: ReleaseIosDeviceInvitation :execrows
+UPDATE ios_device_invitations SET claimed_at = NULL, claim_token = NULL
+WHERE id = $1 AND claim_token = $2;
 
 -- name: InsertIosDeviceRegistration :exec
 INSERT INTO ios_device_registrations (

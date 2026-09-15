@@ -153,19 +153,27 @@ func (s *PostgresIosCredentialsStore) ResolveIosDeviceInvitation(ctx context.Con
 	}, nil
 }
 
-// ClaimIosDeviceInvitation reserves an active, unconsumed link for one enrollment; false when another
-// enrollment holds it or it can no longer be used.
-func (s *PostgresIosCredentialsStore) ClaimIosDeviceInvitation(ctx context.Context, invitationId string) (bool, error) {
-	claimed, err := s.engine.Queries.ClaimIosDeviceInvitation(ctx, ToPgUUID(invitationId))
+// ErrIosDeviceInvitationClaimLost means another enrollment owns or has consumed the link.
+var ErrIosDeviceInvitationClaimLost = errors.New("ios device invitation claim lost")
+
+// ClaimIosDeviceInvitation returns a unique claim token, or an empty string when the link is unavailable.
+func (s *PostgresIosCredentialsStore) ClaimIosDeviceInvitation(ctx context.Context, invitationId string) (string, error) {
+	claimToken := uuid.NewString()
+	claimed, err := s.engine.Queries.ClaimIosDeviceInvitation(ctx, pgdb.ClaimIosDeviceInvitationParams{
+		ID: ToPgUUID(invitationId), ClaimToken: ToPgUUID(claimToken),
+	})
 	if err != nil {
-		return false, fmt.Errorf("failed to claim ios device invitation in database: %w", err)
+		return "", fmt.Errorf("failed to claim ios device invitation in database: %w", err)
 	}
-	return claimed == 1, nil
+	if claimed == 0 {
+		return "", nil
+	}
+	return claimToken, nil
 }
 
 // FinishIosDeviceRegistration records the outcome of a claimed link: a successful registration consumes
 // the link, a failed one releases it. It returns the id of the registration.
-func (s *PostgresIosCredentialsStore) FinishIosDeviceRegistration(ctx context.Context, registration IosDeviceRegistration) (string, error) {
+func (s *PostgresIosCredentialsStore) FinishIosDeviceRegistration(ctx context.Context, registration IosDeviceRegistration, claimToken string) (string, error) {
 	id := uuid.NewString()
 	err := s.engine.WithTx(ctx, func(q *pgdb.Queries) error {
 		err := q.InsertIosDeviceRegistration(ctx, pgdb.InsertIosDeviceRegistrationParams{
@@ -182,13 +190,21 @@ func (s *PostgresIosCredentialsStore) FinishIosDeviceRegistration(ctx context.Co
 		if err != nil {
 			return fmt.Errorf("failed to save ios device registration in database: %w", err)
 		}
+		var updated int64
 		if registration.Status == types.IosDeviceRegistered {
-			err = q.ConsumeIosDeviceInvitation(ctx, pgdb.ConsumeIosDeviceInvitationParams{ID: ToPgUUID(registration.InvitationId), RegistrationID: ToPgUUID(id)})
+			updated, err = q.ConsumeIosDeviceInvitation(ctx, pgdb.ConsumeIosDeviceInvitationParams{
+				ID: ToPgUUID(registration.InvitationId), RegistrationID: ToPgUUID(id), ClaimToken: ToPgUUID(claimToken),
+			})
 		} else {
-			err = q.ReleaseIosDeviceInvitation(ctx, ToPgUUID(registration.InvitationId))
+			updated, err = q.ReleaseIosDeviceInvitation(ctx, pgdb.ReleaseIosDeviceInvitationParams{
+				ID: ToPgUUID(registration.InvitationId), ClaimToken: ToPgUUID(claimToken),
+			})
 		}
 		if err != nil {
 			return fmt.Errorf("failed to update ios device invitation in database: %w", err)
+		}
+		if updated == 0 {
+			return ErrIosDeviceInvitationClaimLost
 		}
 		return nil
 	})
@@ -198,9 +214,11 @@ func (s *PostgresIosCredentialsStore) FinishIosDeviceRegistration(ctx context.Co
 	return id, nil
 }
 
-// ReleaseIosDeviceInvitation gives a claimed link back when its enrollment stops before recording an outcome.
-func (s *PostgresIosCredentialsStore) ReleaseIosDeviceInvitation(ctx context.Context, invitationId string) error {
-	if err := s.engine.Queries.ReleaseIosDeviceInvitation(ctx, ToPgUUID(invitationId)); err != nil {
+// ReleaseIosDeviceInvitation releases only this owner's claim; a stale token is a no-op.
+func (s *PostgresIosCredentialsStore) ReleaseIosDeviceInvitation(ctx context.Context, invitationId string, claimToken string) error {
+	if _, err := s.engine.Queries.ReleaseIosDeviceInvitation(ctx, pgdb.ReleaseIosDeviceInvitationParams{
+		ID: ToPgUUID(invitationId), ClaimToken: ToPgUUID(claimToken),
+	}); err != nil {
 		return fmt.Errorf("failed to release ios device invitation in database: %w", err)
 	}
 	return nil
