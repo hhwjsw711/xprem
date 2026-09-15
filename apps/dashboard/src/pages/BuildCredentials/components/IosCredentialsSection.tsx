@@ -13,6 +13,7 @@ type Props = {
   canManage: boolean;
 };
 
+/** Loads the identifier signing state and the app Apple account metadata. */
 export const IosCredentialsSection = ({ identifier, canManage }: Props) => {
   const { selectedAppId } = useSelectedApp();
   const queryClient = useQueryClient();
@@ -29,11 +30,13 @@ export const IosCredentialsSection = ({ identifier, canManage }: Props) => {
     enabled: !!selectedAppId,
   });
 
+  /** Refreshes the identifier signing state after a credential change. */
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['iosCredentials', selectedAppId, identifier.id] });
   };
 
   // The key is per app: the configured badge of every identifier and the Apple lists depend on it.
+  /** Refreshes Apple-dependent queries after the team API key changes. */
   const invalidateApiKey = () => {
     queryClient.invalidateQueries({ queryKey: ['appleApiKey', selectedAppId] });
     queryClient.invalidateQueries({ queryKey: ['identifiers', selectedAppId] });

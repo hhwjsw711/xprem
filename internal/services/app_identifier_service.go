@@ -99,6 +99,7 @@ func (s *AppIdentifierService) CreateAppIdentifier(ctx context.Context, appId st
 	return identifierId, nil
 }
 
+// GetAppIdentifiers lists app identifiers with their platform signing-credential readiness.
 func (s *AppIdentifierService) GetAppIdentifiers(ctx context.Context, appId string) ([]AppIdentifier, error) {
 	if s.repo == nil {
 		return nil, store.ErrNotSupportedInStatelessMode

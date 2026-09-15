@@ -73,6 +73,7 @@ type IosDeviceRegistration struct {
 	Error         *string
 }
 
+// InsertIosDeviceInvitation stores a hashed registration token and returns the link creation time.
 func (s *PostgresIosCredentialsStore) InsertIosDeviceInvitation(ctx context.Context, invitation NewIosDeviceInvitation) (time.Time, error) {
 	createdAt, err := s.engine.Queries.InsertIosDeviceInvitation(ctx, pgdb.InsertIosDeviceInvitationParams{
 		ID:                    ToPgUUID(invitation.Id),

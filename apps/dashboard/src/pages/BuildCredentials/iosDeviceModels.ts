@@ -80,6 +80,7 @@ const DEVICE_CLASS_NAMES: Record<string, string> = {
   IPOD: 'iPod touch',
 };
 
+/** Uses a known hardware name, then Apple metadata or the raw device class as a fallback. */
 export const deviceModelName = (device: AppleDevice) =>
   PRODUCT_NAMES[device.product] ||
   device.model ||

@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"crypto/x509"
 	_ "embed"
+	"encoding/asn1"
 	"encoding/pem"
 	"errors"
 	"time"
@@ -98,6 +99,12 @@ func (v *DeviceResponseVerifier) Parse(data []byte, challenge string) (*DeviceAt
 	if signer == nil || signer.IsCA || len(signer.UnhandledCriticalExtensions) != 0 ||
 		(signer.KeyUsage != 0 && signer.KeyUsage&x509.KeyUsageDigitalSignature == 0) {
 		return nil, errInvalidDeviceResponse
+	}
+	if len(signed.Signers[0].AuthenticatedAttributes) != 0 {
+		var contentType asn1.ObjectIdentifier
+		if err := signed.UnmarshalSignedAttribute(pkcs7.OIDAttributeContentType, &contentType); err != nil || !contentType.Equal(pkcs7.OIDData) {
+			return nil, errInvalidDeviceResponse
+		}
 	}
 	if v.authority == nil || !v.authority.IsCA || !v.authority.BasicConstraintsValid ||
 		v.authority.KeyUsage&x509.KeyUsageCertSign == 0 || !bytes.Equal(signer.RawIssuer, v.authority.RawSubject) {

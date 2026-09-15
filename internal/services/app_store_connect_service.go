@@ -54,6 +54,7 @@ type IosSigningCertificate struct {
 	Selectable         bool    `json:"selectable"`
 }
 
+// appStoreConnectKeyAAD binds encrypted API key material to its app and purpose.
 func appStoreConnectKeyAAD(appId string) []byte {
 	return []byte(appId + "|app_store_connect_api_keys|private_key")
 }
@@ -122,6 +123,7 @@ func (s *IosCredentialsService) GetAppStoreConnectApiKeyMetadata(ctx context.Con
 	}, nil
 }
 
+// DeleteAppStoreConnectApiKey deletes the app team credentials and records the management event.
 func (s *IosCredentialsService) DeleteAppStoreConnectApiKey(ctx context.Context, appId string) error {
 	appId, err := s.canonicalAppID(appId)
 	if err != nil {
@@ -193,10 +195,12 @@ type IosCertificateImportInput struct {
 	CertificatePassword  string
 }
 
+// iosCertificateAAD binds an encrypted certificate field to its certificate ID and purpose.
 func iosCertificateAAD(certificateId string, field string) []byte {
 	return []byte(certificateId + "|ios_certificates|" + field)
 }
 
+// decodeIosUpload decodes a size-limited base64 upload and returns a field-specific validation error.
 func decodeIosUpload(field string, label string, encoded string, maxBytes int) ([]byte, error) {
 	data, err := base64.StdEncoding.DecodeString(encoded)
 	if err != nil {
@@ -305,6 +309,7 @@ func (s *IosCredentialsService) appleTeamID(ctx context.Context, appId string) (
 	return "", nil
 }
 
+// appStoreConnectClient decrypts the app API key and constructs its authenticated Apple client.
 func (s *IosCredentialsService) appStoreConnectClient(ctx context.Context, appId string) (*appstoreconnect.Client, error) {
 	appId, err := s.canonicalAppID(appId)
 	if err != nil {

@@ -49,12 +49,14 @@ type PostgresIosCredentialsStore struct {
 	engine *database.Engine
 }
 
+// NewPostgresIosCredentialsStore connects iOS credential persistence to the database engine.
 func NewPostgresIosCredentialsStore(engine *database.Engine) *PostgresIosCredentialsStore {
 	return &PostgresIosCredentialsStore{
 		engine: engine,
 	}
 }
 
+// iosCertificateFromRow converts a database certificate row into the store representation.
 func iosCertificateFromRow(row pgdb.GetIosCertificateRow) IosCertificate {
 	return IosCertificate{
 		Id:              row.ID.String(),
@@ -160,6 +162,7 @@ func (s *PostgresIosCredentialsStore) GetIosSigningSetting(ctx context.Context, 
 	return setting, nil
 }
 
+// UpsertIosSigningSetting replaces the identifier single shared iOS signing choice.
 func (s *PostgresIosCredentialsStore) UpsertIosSigningSetting(ctx context.Context, identifierId string, setting IosSigningSetting) error {
 	err := s.engine.Queries.UpsertIosSigningSetting(ctx, pgdb.UpsertIosSigningSettingParams{
 		AppIdentifierID: ToPgUUID(identifierId),
@@ -172,6 +175,7 @@ func (s *PostgresIosCredentialsStore) UpsertIosSigningSetting(ctx context.Contex
 	return nil
 }
 
+// UpsertAppStoreConnectApiKey stores the app sealed API key and refreshes its update timestamp.
 func (s *PostgresIosCredentialsStore) UpsertAppStoreConnectApiKey(ctx context.Context, appId string, key SealedAppStoreConnectApiKey) error {
 	err := s.engine.Queries.UpsertAppStoreConnectApiKey(ctx, pgdb.UpsertAppStoreConnectApiKeyParams{
 		ID:               ToPgUUID(uuid.NewString()),
@@ -204,6 +208,7 @@ func (s *PostgresIosCredentialsStore) GetAppStoreConnectApiKey(ctx context.Conte
 	}, nil
 }
 
+// DeleteAppStoreConnectApiKey removes the app team credentials or reports that no key exists.
 func (s *PostgresIosCredentialsStore) DeleteAppStoreConnectApiKey(ctx context.Context, appId string) error {
 	commandTag, err := s.engine.Queries.DeleteAppStoreConnectApiKey(ctx, ToPgUUID(appId))
 	if err != nil {

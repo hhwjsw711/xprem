@@ -16,6 +16,7 @@ type Props = {
   onCancel: () => void;
 };
 
+/** Imports the private key for the selected Apple distribution certificate. */
 export const IosCertificateUploadForm = ({
   identifierId,
   fingerprintSha1,
@@ -28,6 +29,7 @@ export const IosCertificateUploadForm = ({
   const [isSaving, setIsSaving] = useState(false);
   const passwordId = useId();
 
+  /** Selects a PKCS#12 file only when it fits the certificate upload size limit. */
   const handlePick = (file: File) => {
     if (file.size > MAX_CERTIFICATE_BYTES) {
       toast({
@@ -40,6 +42,7 @@ export const IosCertificateUploadForm = ({
     setCertificateFile(file);
   };
 
+  /** Encodes the PKCS#12 identity, uploads it and reports the refreshed certificate list. */
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSaving || !certificateFile) return;

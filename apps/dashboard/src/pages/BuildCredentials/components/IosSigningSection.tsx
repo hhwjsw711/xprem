@@ -23,6 +23,7 @@ type Props = {
   onChanged: () => void;
 };
 
+/** Displays one signing mode with its saved-state marker and permission controls. */
 const ModeOption = ({
   name,
   checked,
@@ -64,6 +65,7 @@ const ModeOption = ({
   </label>
 );
 
+/** Offers locally usable Apple certificates and an import form for missing private keys. */
 const CertificateList = ({
   identifierId,
   name,
@@ -163,6 +165,7 @@ const CertificateList = ({
   );
 };
 
+/** Edits automatic or selected-certificate signing for the identifier. */
 export const IosSigningSection = ({
   identifierId,
   setting,
@@ -188,6 +191,7 @@ export const IosSigningSection = ({
     mode !== setting.mode || (mode === 'certificate' && certificateId !== savedCertificateId);
   const canSave = isDirty && (mode === 'automatic' || !!certificateId);
 
+  /** Persists the selected signing mode and refreshes the saved credential state. */
   const handleSave = async () => {
     if (!canSave) return;
     setIsSaving(true);
@@ -216,6 +220,7 @@ export const IosSigningSection = ({
     }
   };
 
+  /** Updates the certificate cache after a matching private key is imported. */
   const handleImported = (
     certificates: AppleDistributionCertificate[],
     fingerprintSha1: string
@@ -232,6 +237,7 @@ export const IosSigningSection = ({
     }
   };
 
+  /** Renders the Apple certificate loading, failure, empty or selection state. */
   const renderCertificates = () => {
     if (!canManage) return null;
     if (certificatesQuery.isPending) return <Skeleton className="h-16 w-full rounded-lg" />;

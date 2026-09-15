@@ -1796,6 +1796,7 @@ export class ApiClient {
     );
   }
 
+  /** Returns the selected app Apple API key metadata, never its private key. */
   public async getAppleApiKey() {
     const response = await this.request<{ apiKey: AppleApiKey | null }>(
       `${this.appScope()}/apple/api-key`,
@@ -1804,6 +1805,7 @@ export class ApiClient {
     return response.apiKey;
   }
 
+  /** Validates and saves an App Store Connect team key for the selected app. */
   public async saveAppleApiKey(payload: AppleApiKeyPayload) {
     const response = await this.request<{ apiKey: AppleApiKey | null }>(
       `${this.appScope()}/apple/api-key`,
@@ -1816,10 +1818,12 @@ export class ApiClient {
     return response.apiKey;
   }
 
+  /** Deletes the selected app App Store Connect key. */
   public async deleteAppleApiKey() {
     return this.request<void>(`${this.appScope()}/apple/api-key`, { method: 'DELETE' });
   }
 
+  /** Loads the identifier signing mode and selected certificate metadata. */
   public async getIosCredentials(identifierId: string) {
     return this.request<IosCredentialsMetadata>(
       `${this.appScope()}/identifiers/${encodeURIComponent(identifierId)}/credentials/ios`,
@@ -1827,6 +1831,7 @@ export class ApiClient {
     );
   }
 
+  /** Saves the identifier shared signing choice for its iOS build destinations. */
   public async updateIosSigning(identifierId: string, payload: IosSigningPayload) {
     return this.request<IosCredentialsMetadata>(
       `${this.appScope()}/identifiers/${encodeURIComponent(identifierId)}/credentials/ios/signing`,
@@ -1838,7 +1843,7 @@ export class ApiClient {
     );
   }
 
-  // Stores the private key of an Apple certificate created outside xprem; answers the updated list.
+  /** Stores the private key of an Apple certificate created outside xprem; answers the updated list. */
   public async importIosCertificate(
     identifierId: string,
     payload: { fingerprintSha1: string; certificateP12: string; certificatePassword: string }
@@ -1854,6 +1859,7 @@ export class ApiClient {
     return response.certificates;
   }
 
+  /** Lists Apple certificates and whether xprem holds each private key. */
   public async getAppleDistributionCertificates(identifierId: string) {
     const response = await this.request<{ certificates: AppleDistributionCertificate[] }>(
       `${this.appScope()}/identifiers/${encodeURIComponent(identifierId)}/credentials/ios/certificates`,
@@ -1862,6 +1868,7 @@ export class ApiClient {
     return response.certificates;
   }
 
+  /** Lists the Apple team devices with local invitation metadata. */
   public async getIosDevices() {
     const response = await this.request<{ devices: AppleDevice[] }>(
       `${this.appScope()}/ios/devices`,
@@ -1870,6 +1877,7 @@ export class ApiClient {
     return response.devices;
   }
 
+  /** Lists registration invitations, including consumed, expired and revoked links. */
   public async getIosDeviceInvitations() {
     const response = await this.request<{ invitations: IosDeviceInvitation[] }>(
       `${this.appScope()}/ios/device-invitations`,
@@ -1878,7 +1886,7 @@ export class ApiClient {
     return response.invitations;
   }
 
-  // The only call that returns the registration URL; there is no way to read it back later.
+  /** The only call that returns the registration URL; there is no way to read it back later. */
   public async createIosDeviceInvitation(payload: { label: string; expiresInHours: number }) {
     return this.request<CreateIosDeviceInvitationResponse>(
       `${this.appScope()}/ios/device-invitations`,
@@ -1890,6 +1898,7 @@ export class ApiClient {
     );
   }
 
+  /** Revokes an invitation so it cannot start another enrollment. */
   public async revokeIosDeviceInvitation(invitationId: string) {
     return this.request<void>(
       `${this.appScope()}/ios/device-invitations/${encodeURIComponent(invitationId)}`,
@@ -1897,6 +1906,7 @@ export class ApiClient {
     );
   }
 
+  /** Disables a device in the selected app Apple team. */
   public async disableIosDevice(deviceId: string) {
     return this.request<void>(
       `${this.appScope()}/ios/devices/${encodeURIComponent(deviceId)}/disable`,
@@ -1904,6 +1914,7 @@ export class ApiClient {
     );
   }
 
+  /** Re-enables a device in the selected app Apple team. */
   public async enableIosDevice(deviceId: string) {
     return this.request<void>(
       `${this.appScope()}/ios/devices/${encodeURIComponent(deviceId)}/enable`,
@@ -1911,24 +1922,26 @@ export class ApiClient {
     );
   }
 
-  // Public endpoints of the iPhone registration page: plain fetches, so no session is sent.
+  /** Public endpoints of the iPhone registration page: plain fetches, so no session is sent. */
   public async getDeviceRegistrationLink(token: string) {
     return this.fetchPublic<DeviceRegistrationLink>(
       `/device-registrations/${encodeURIComponent(token)}`
     );
   }
 
+  /** Reads a public registration result using its invitation token without a session. */
   public async getDeviceRegistrationStatus(token: string, registrationId: string) {
     return this.fetchPublic<DeviceRegistrationStatus>(
       `/device-registrations/${encodeURIComponent(token)}/registrations/${encodeURIComponent(registrationId)}`
     );
   }
 
+  /** Builds the download URL of an invitation Profile Service configuration. */
   public deviceRegistrationProfileUrl(token: string) {
     return `${this.baseUrl}/device-registrations/${encodeURIComponent(token)}/profile`;
   }
 
-  // 404 is an unknown, expired or revoked link; 410 a link that already registered its iPhone.
+  /** 404 is an unknown, expired or revoked link; 410 a link that already registered its iPhone. */
   private async fetchPublic<T>(endpoint: string): Promise<PublicResult<T>> {
     const response = await fetch(`${this.baseUrl}${endpoint}`, { credentials: 'omit' });
     if (response.status === 404) return { status: 'invalid-link' };

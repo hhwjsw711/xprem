@@ -21,6 +21,7 @@ type Props = {
   onChanged: () => void;
 };
 
+/** Displays the team API key status and permission-gated replacement and deletion forms. */
 export const AppleAccountCard = ({ apiKey, apiKeyError, onRetry, canManage, onChanged }: Props) => {
   const { toast } = useToast();
   const [keyId, setKeyId] = useState('');
@@ -33,6 +34,7 @@ export const AppleAccountCard = ({ apiKey, apiKeyError, onRetry, canManage, onCh
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const isComplete = !!keyId.trim() && !!issuerId.trim() && !!privateKey;
 
+  /** Clears the private key and account identifiers from local form state. */
   const clearForm = () => {
     setKeyId('');
     setIssuerId('');
@@ -40,6 +42,7 @@ export const AppleAccountCard = ({ apiKey, apiKeyError, onRetry, canManage, onCh
     setFileName(null);
   };
 
+  /** Reads a selected .p8 file after enforcing the private-key size limit. */
   const handlePick = async (file: File) => {
     if (file.size > MAX_PRIVATE_KEY_BYTES) {
       toast({
@@ -61,6 +64,7 @@ export const AppleAccountCard = ({ apiKey, apiKeyError, onRetry, canManage, onCh
     }
   };
 
+  /** Saves a complete API key and clears its private material after success. */
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSaving || !isComplete) return;
@@ -79,6 +83,7 @@ export const AppleAccountCard = ({ apiKey, apiKeyError, onRetry, canManage, onCh
     }
   };
 
+  /** Removes the team key and refreshes the account status after confirmation. */
   const handleDelete = async () => {
     setIsDeleting(true);
     try {
@@ -153,6 +158,7 @@ export const AppleAccountCard = ({ apiKey, apiKeyError, onRetry, canManage, onCh
     </form>
   );
 
+  /** Chooses the loading error, key metadata or connection form for the card. */
   const renderContent = () => {
     if (apiKeyError) {
       return <ApiError error={apiKeyError} onRetry={onRetry} />;

@@ -101,11 +101,13 @@ type IosDeviceRegisteredVia struct {
 	RegisteredAt string `json:"registeredAt"`
 }
 
+// iosDeviceTokenHash hashes a bearer token so its plaintext is never needed in the database.
 func iosDeviceTokenHash(token string) string {
 	sum := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(sum[:])
 }
 
+// randomURLSafeString generates 32 cryptographically random bytes encoded for use in links.
 func randomURLSafeString() (string, error) {
 	secret := make([]byte, 32)
 	if _, err := rand.Read(secret); err != nil {
@@ -217,6 +219,7 @@ func (s *IosCredentialsService) ListIosDeviceInvitations(ctx context.Context, ap
 	return invitations, nil
 }
 
+// RevokeIosDeviceInvitation revokes an app invitation and records the management event.
 func (s *IosCredentialsService) RevokeIosDeviceInvitation(ctx context.Context, appId string, invitationId string) error {
 	appId, err := s.canonicalAppID(appId)
 	if err != nil {
@@ -366,6 +369,7 @@ func (s *IosCredentialsService) activeIosDeviceInvitation(ctx context.Context, t
 	return invitation, nil
 }
 
+// GetPublicIosDeviceInvitation returns safe display metadata for an active, unused registration link.
 func (s *IosCredentialsService) GetPublicIosDeviceInvitation(ctx context.Context, token string) (*PublicIosDeviceInvitation, error) {
 	invitation, err := s.activeIosDeviceInvitation(ctx, token)
 	if err != nil {
@@ -510,6 +514,7 @@ func (s *IosCredentialsService) registerAppleDevice(ctx context.Context, appId s
 	return appleDeviceId, nil
 }
 
+// registrationErrorMessage returns a public-safe enrollment error and logs unexpected failures.
 func registrationErrorMessage(err error) string {
 	var valErr *validation.Error
 	switch {

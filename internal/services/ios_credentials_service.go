@@ -153,6 +153,7 @@ func (s *IosCredentialsService) GetIosCredentialsMetadata(ctx context.Context, a
 	return metadata, nil
 }
 
+// selectedCertificate returns display metadata for a selected certificate, or nil when it is missing.
 func (s *IosCredentialsService) selectedCertificate(ctx context.Context, certificateId *string) (*IosCertificateMetadata, error) {
 	if certificateId == nil {
 		return nil, nil

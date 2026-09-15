@@ -69,6 +69,7 @@ func Fingerprint(der []byte) string {
 	return strings.ToUpper(hex.EncodeToString(sum[:]))
 }
 
+// certificateForKey finds the certificate whose public key matches the imported private key.
 func certificateForKey(privateKey any, certificates []*x509.Certificate) (*x509.Certificate, error) {
 	signer, ok := privateKey.(crypto.Signer)
 	if !ok {
@@ -86,6 +87,7 @@ func certificateForKey(privateKey any, certificates []*x509.Certificate) (*x509.
 	return nil, validation.Errorf("certificateP12", "no certificate in the file matches its private key")
 }
 
+// certificateTypeOf recognizes Apple development and distribution certificate subject names.
 func certificateTypeOf(commonName string) (types.IosCertificateType, bool) {
 	switch {
 	case strings.HasPrefix(commonName, "Apple Distribution"), strings.HasPrefix(commonName, "iPhone Distribution"):

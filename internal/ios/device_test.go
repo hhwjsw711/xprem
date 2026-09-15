@@ -116,6 +116,10 @@ func TestDeviceResponseSignatures(t *testing.T) {
 		attributes, err := verifier.Parse(signed, "challenge")
 		require.NoError(t, err)
 		assert.Equal(t, "real-device", attributes.UDID)
+		wrongKey := identity
+		wrongKey.Key = iostest.NewDeviceAuthority().Key
+		_, err = verifier.Parse(wrongKey.SignResponse(content, indefinite), "challenge")
+		require.ErrorIs(t, err, errInvalidDeviceResponse, "signature does not match the certified key")
 		for name, response := range map[string][]byte{
 			"modified content": bytes.Replace(signed, []byte("real-device"), []byte("fake-device"), 1),
 			"truncated":        signed[:len(signed)-5],

@@ -18,10 +18,12 @@ import (
 
 const maxIosDeviceResponseBytes = 64 << 10
 
+// iosDeviceRegistrationPageURL builds the public dashboard URL with an escaped invitation token.
 func iosDeviceRegistrationPageURL(token string) string {
 	return config.BaseURL() + "/dashboard/register-device/" + url.PathEscape(token)
 }
 
+// CreateIosDeviceInvitationHandler creates a single-use link and returns its URL once without caching.
 func (h *IosCredentialsHandler) CreateIosDeviceInvitationHandler(w http.ResponseWriter, r *http.Request) {
 	var requestBody struct {
 		Label          string `json:"label"`
@@ -40,6 +42,7 @@ func (h *IosCredentialsHandler) CreateIosDeviceInvitationHandler(w http.Response
 	handlers.RenderJSON(w, http.StatusCreated, map[string]any{"invitation": invitation, "url": iosDeviceRegistrationPageURL(token)})
 }
 
+// ListIosDeviceInvitationsHandler returns the app registration links and their lifecycle states.
 func (h *IosCredentialsHandler) ListIosDeviceInvitationsHandler(w http.ResponseWriter, r *http.Request) {
 	invitations, err := h.iosCredentialsService.ListIosDeviceInvitations(r.Context(), mux.Vars(r)["APP_ID"])
 	if err != nil {
@@ -49,6 +52,7 @@ func (h *IosCredentialsHandler) ListIosDeviceInvitationsHandler(w http.ResponseW
 	renderJSON(w, map[string]any{"invitations": invitations})
 }
 
+// RevokeIosDeviceInvitationHandler revokes the selected app invitation and returns HTTP 204.
 func (h *IosCredentialsHandler) RevokeIosDeviceInvitationHandler(w http.ResponseWriter, r *http.Request) {
 	invitationId := uuidVar(w, r, "INVITATION_ID", "invitation id")
 	if invitationId == "" {
@@ -61,14 +65,17 @@ func (h *IosCredentialsHandler) RevokeIosDeviceInvitationHandler(w http.Response
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// DisableAppleDeviceHandler disables the selected device in the app Apple team.
 func (h *IosCredentialsHandler) DisableAppleDeviceHandler(w http.ResponseWriter, r *http.Request) {
 	h.setAppleDeviceEnabled(w, r, false)
 }
 
+// EnableAppleDeviceHandler enables the selected device in the app Apple team.
 func (h *IosCredentialsHandler) EnableAppleDeviceHandler(w http.ResponseWriter, r *http.Request) {
 	h.setAppleDeviceEnabled(w, r, true)
 }
 
+// setAppleDeviceEnabled applies a device status change and maps service errors to HTTP.
 func (h *IosCredentialsHandler) setAppleDeviceEnabled(w http.ResponseWriter, r *http.Request, enabled bool) {
 	if err := h.iosCredentialsService.SetAppleDeviceEnabled(r.Context(), mux.Vars(r)["APP_ID"], mux.Vars(r)["DEVICE_ID"], enabled); err != nil {
 		renderIosServiceError(w, err, "An internal error occurred while updating the Apple device.")
@@ -77,6 +84,7 @@ func (h *IosCredentialsHandler) setAppleDeviceEnabled(w http.ResponseWriter, r *
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// ListAppleDevicesHandler returns Apple devices enriched with local registration metadata.
 func (h *IosCredentialsHandler) ListAppleDevicesHandler(w http.ResponseWriter, r *http.Request) {
 	devices, err := h.iosCredentialsService.ListAppleDevices(r.Context(), mux.Vars(r)["APP_ID"])
 	if err != nil {
@@ -86,6 +94,7 @@ func (h *IosCredentialsHandler) ListAppleDevicesHandler(w http.ResponseWriter, r
 	renderJSON(w, map[string]any{"devices": devices})
 }
 
+// setPublicIosDeviceHeaders prevents caching, indexing and referrer disclosure of registration pages.
 func setPublicIosDeviceHeaders(w http.ResponseWriter) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Referrer-Policy", "no-referrer")
@@ -93,6 +102,7 @@ func setPublicIosDeviceHeaders(w http.ResponseWriter) {
 	w.Header().Set("X-Robots-Tag", "noindex, nofollow")
 }
 
+// isInvalidIosDeviceLink groups missing links and unsupported stateless deployments as invalid links.
 func isInvalidIosDeviceLink(err error) bool {
 	var notFound *store.ErrResourceNotFound
 	return errors.As(err, &notFound) || errors.Is(err, store.ErrNotSupportedInStatelessMode)
@@ -112,6 +122,7 @@ func renderPublicIosDeviceError(w http.ResponseWriter, err error) {
 	handlers.RenderError(w, http.StatusInternalServerError, "An internal error occurred.")
 }
 
+// PublicIosDeviceInvitationHandler returns only the invitation metadata needed before enrollment.
 func (h *IosCredentialsHandler) PublicIosDeviceInvitationHandler(w http.ResponseWriter, r *http.Request) {
 	setPublicIosDeviceHeaders(w)
 	invitation, err := h.iosCredentialsService.GetPublicIosDeviceInvitation(r.Context(), mux.Vars(r)["TOKEN"])
@@ -122,6 +133,7 @@ func (h *IosCredentialsHandler) PublicIosDeviceInvitationHandler(w http.Response
 	handlers.RenderJSON(w, http.StatusOK, invitation)
 }
 
+// IosDeviceRegistrationProfileHandler downloads the active invitation Profile Service configuration.
 func (h *IosCredentialsHandler) IosDeviceRegistrationProfileHandler(w http.ResponseWriter, r *http.Request) {
 	setPublicIosDeviceHeaders(w)
 	token := mux.Vars(r)["TOKEN"]
@@ -165,6 +177,7 @@ func (h *IosCredentialsHandler) EnrollIosDeviceHandler(w http.ResponseWriter, r 
 	w.WriteHeader(http.StatusMovedPermanently)
 }
 
+// PublicIosDeviceRegistrationHandler returns a registration outcome only for its owning invitation token.
 func (h *IosCredentialsHandler) PublicIosDeviceRegistrationHandler(w http.ResponseWriter, r *http.Request) {
 	setPublicIosDeviceHeaders(w)
 	registration, err := h.iosCredentialsService.GetPublicIosDeviceRegistration(r.Context(), mux.Vars(r)["TOKEN"], mux.Vars(r)["REGISTRATION_ID"])

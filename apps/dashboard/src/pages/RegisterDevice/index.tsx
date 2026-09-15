@@ -8,11 +8,12 @@ import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 
-// iPadOS Safari reports a Mac user agent; the touch points tell them apart.
+/** iPadOS Safari reports a Mac user agent; the touch points tell them apart. */
 const isIos = () =>
   /iPhone|iPad|iPod/.test(navigator.userAgent) ||
   (navigator.userAgent.includes('Macintosh') && navigator.maxTouchPoints > 1);
 
+/** Provides the public registration layout outside the authenticated dashboard. */
 const Shell = ({ children }: { children: React.ReactNode }) => (
   <div className="flex min-h-[100dvh] w-full flex-col items-center bg-background px-4 py-8 sm:justify-center">
     <div className="w-full max-w-md">
@@ -25,6 +26,7 @@ const Shell = ({ children }: { children: React.ReactNode }) => (
   </div>
 );
 
+/** Displays a registration status with its icon and explanatory text. */
 const Message = ({
   icon,
   title,
@@ -41,6 +43,7 @@ const Message = ({
   </div>
 );
 
+/** Explains that an unknown, expired or revoked invitation must be replaced. */
 const InvalidLink = () => (
   <Message
     icon={<TriangleAlert className="h-8 w-8 text-amber-600 dark:text-amber-400" />}
@@ -49,6 +52,7 @@ const InvalidLink = () => (
   </Message>
 );
 
+/** Explains that a single-use invitation has already registered its device. */
 const UsedLink = () => (
   <Message
     icon={<TriangleAlert className="h-8 w-8 text-amber-600 dark:text-amber-400" />}
@@ -57,6 +61,7 @@ const UsedLink = () => (
   </Message>
 );
 
+/** Offers a retry when public registration metadata cannot be loaded. */
 const LoadError = ({ onRetry }: { onRetry: () => void }) => (
   <Message
     icon={<TriangleAlert className="h-8 w-8 text-amber-600 dark:text-amber-400" />}
@@ -68,6 +73,7 @@ const LoadError = ({ onRetry }: { onRetry: () => void }) => (
   </Message>
 );
 
+/** Displays a placeholder while the public registration request is pending. */
 const Loading = () => (
   <div className="space-y-3">
     <Skeleton className="mx-auto h-6 w-48" />
@@ -75,10 +81,12 @@ const Loading = () => (
   </div>
 );
 
+/** Highlights labels the tester must find in the iOS interface. */
 const Ui = ({ children }: { children: React.ReactNode }) => (
   <span className="font-semibold text-foreground">{children}</span>
 );
 
+/** Fetches and displays the outcome belonging to this invitation and registration ID. */
 const RegistrationResult = ({
   token,
   registrationId,
@@ -118,6 +126,7 @@ const RegistrationResult = ({
   );
 };
 
+/** Shows enrollment instructions on iOS or a QR code for opening the link on a device. */
 const RegistrationSteps = ({ token }: { token: string }) => {
   const linkQuery = useQuery({
     queryKey: ['deviceRegistrationLink', token],
@@ -199,7 +208,7 @@ const RegistrationSteps = ({ token }: { token: string }) => {
   );
 };
 
-// Public page opened on the tester's iPhone: it never uses the dashboard session.
+/** Public page opened on the tester's iPhone: it never uses the dashboard session. */
 export const RegisterDevice = () => {
   const { token = '' } = useParams<{ token: string }>();
   const [searchParams] = useSearchParams();

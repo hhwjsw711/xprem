@@ -20,12 +20,14 @@ import {
 import { deviceModelName } from '../iosDeviceModels';
 import { InviteIphonesDialog } from './InviteIphonesDialog';
 
+/** Abbreviates long device identifiers for display while retaining both ends. */
 const shortUdid = (udid: string) =>
   udid.length > 12 ? `${udid.slice(0, 8)}…${udid.slice(-4)}` : udid;
 
-// Apple may send a date the server cannot parse; it is then shown as received.
+/** Apple may send a date the server cannot parse; it is then shown as received. */
 const formatDate = (date: string) => formatTimestamp(date) ?? date;
 
+/** Copies the complete device identifier and reports clipboard failures. */
 const CopyUdidButton = ({ udid }: { udid: string }) => {
   const { toast } = useToast();
   const [copied, setCopied] = useState(false);
@@ -53,6 +55,7 @@ const CopyUdidButton = ({ udid }: { udid: string }) => {
   );
 };
 
+/** Displays a device status, registration source and available management actions. */
 const DeviceRow = ({
   device,
   canManage,
@@ -115,6 +118,7 @@ const DeviceRow = ({
 };
 
 // The devices list calls Apple and needs credentials:manage, so viewers only see pending links.
+/** Lists Apple devices and manages single-use registration invitations. */
 export const AdHocIphones = ({ canManage }: { canManage: boolean }) => {
   const { selectedAppId } = useSelectedApp();
   const { toast } = useToast();
@@ -137,9 +141,11 @@ export const AdHocIphones = ({ canManage }: { canManage: boolean }) => {
     enabled: !!selectedAppId,
   });
 
+  /** Refreshes invitation lifecycle states after creation or revocation. */
   const invalidateInvitations = () =>
     queryClient.invalidateQueries({ queryKey: ['iosDeviceInvitations', selectedAppId] });
 
+  /** Changes the Apple device status and refreshes its cached entry. */
   const updateDevice = async (device: AppleDevice, action: 'disable' | 'enable') => {
     setUpdatingDeviceId(device.id);
     try {
@@ -165,6 +171,7 @@ export const AdHocIphones = ({ canManage }: { canManage: boolean }) => {
     }
   };
 
+  /** Revokes a registration invitation and refreshes the invitation list. */
   const handleRevokeInvitation = async (invitation: IosDeviceInvitation) => {
     setRevokingInvitationId(invitation.id);
     try {

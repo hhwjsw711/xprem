@@ -16,6 +16,7 @@ import (
 	"github.com/gorilla/mux"
 )
 
+// getDashboardPath locates the dashboard assets relative to the working directory or executable.
 func getDashboardPath() string {
 	exePath, err := os.Executable()
 	if err != nil {

@@ -2,6 +2,7 @@ import { ChevronRight, ExternalLink } from 'lucide-react';
 
 const APP_STORE_CONNECT_API_KEYS = 'https://appstoreconnect.apple.com/access/integrations/api';
 
+/** Opens Apple instructions without forwarding the dashboard referrer. */
 const AppleLink = ({ href, children }: { href: string; children: React.ReactNode }) => (
   <a
     href={href}
@@ -12,15 +13,17 @@ const AppleLink = ({ href, children }: { href: string; children: React.ReactNode
   </a>
 );
 
-// Text exactly as it appears in Apple's interfaces.
+/** Text exactly as it appears in Apple's interfaces. */
 const Ui = ({ children }: { children: React.ReactNode }) => (
   <span className="font-medium text-foreground">{children}</span>
 );
 
+/** Renders an ordered list of setup steps. */
 const Steps = ({ children }: { children: React.ReactNode }) => (
   <ol className="list-decimal space-y-1.5 pl-5">{children}</ol>
 );
 
+/** Wraps optional setup instructions in an expandable section. */
 const GuideSection = ({ title, children }: { title: string; children: React.ReactNode }) => (
   <details className="group rounded-lg border">
     <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2.5 text-sm font-medium text-foreground [&::-webkit-details-marker]:hidden">
@@ -33,6 +36,7 @@ const GuideSection = ({ title, children }: { title: string; children: React.Reac
   </details>
 );
 
+/** Explains how to export a certificate together with its private key as .p12. */
 export const IosCertificateExportGuide = () => (
   <GuideSection title="How to export the .p12">
     <Steps>
@@ -63,6 +67,7 @@ export const IosCertificateExportGuide = () => (
   </GuideSection>
 );
 
+/** Explains where to create and download an App Store Connect team API key. */
 export const AppStoreConnectApiKeyGuide = () => (
   <GuideSection title="Create an App Store Connect API key">
     <Steps>

@@ -14,6 +14,7 @@ var capabilityPath = regexp.MustCompile(`(/(?:build-shares|device-registrations|
 
 const maxCapabilityUnescapes = 5
 
+// redactCapability masks bearer capabilities in public build and device-registration URLs.
 func redactCapability(value string) string {
 	redacted := capabilityPath.ReplaceAllString(value, "${1}[REDACTED]")
 	if redacted != value {
@@ -36,6 +37,7 @@ func redactCapability(value string) string {
 	return value
 }
 
+// redactHeaders copies request headers while masking credentials and capability-bearing URLs.
 func redactHeaders(headers http.Header) http.Header {
 	redactedHeaders := make(http.Header)
 	for key, values := range headers {
@@ -51,6 +53,7 @@ func redactHeaders(headers http.Header) http.Header {
 	return redactedHeaders
 }
 
+// LoggingMiddleware records requests with capability redaction and recovers handler panics.
 func LoggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/hc" || r.URL.Path == "/metrics" || r.URL.Path == "/health" {

@@ -36,6 +36,7 @@ type APIError struct {
 	Detail string
 }
 
+// Error includes the Apple status and detail for server-side diagnostics.
 func (e *APIError) Error() string {
 	return fmt.Sprintf("App Store Connect answered %d: %s", e.Status, e.Detail)
 }
@@ -66,6 +67,7 @@ type Device struct {
 	AddedDate   string
 }
 
+// NewClient creates a team API client with a one-minute request timeout.
 func NewClient(baseURL, keyID, issuerID string, privateKey *ecdsa.PrivateKey) *Client {
 	return &Client{
 		baseURL:    baseURL,
@@ -123,6 +125,7 @@ type deviceAttributes struct {
 	AddedDate   string `json:"addedDate"`
 }
 
+// device combines the Apple resource ID with its device attributes.
 func (a deviceAttributes) device(id string) Device {
 	return Device{ID: id, Name: a.Name, UDID: a.UDID, Model: a.Model, DeviceClass: a.DeviceClass, Status: a.Status, AddedDate: a.AddedDate}
 }
@@ -233,6 +236,7 @@ func (c *Client) UpdateDeviceStatus(ctx context.Context, id string, status strin
 	return updated.Data.Attributes.device(updated.Data.ID), nil
 }
 
+// token signs a short-lived ES256 bearer token for App Store Connect.
 func (c *Client) token() (string, error) {
 	now := time.Now()
 	token := jwt.NewWithClaims(jwt.SigningMethodES256, jwt.MapClaims{
@@ -245,6 +249,7 @@ func (c *Client) token() (string, error) {
 	return token.SignedString(c.privateKey)
 }
 
+// do authenticates one request within the configured API and decodes its response.
 func (c *Client) do(ctx context.Context, method, path string, body any, out any) error {
 	base, err := url.Parse(c.baseURL)
 	if err != nil {
@@ -309,6 +314,7 @@ func (c *Client) do(ctx context.Context, method, path string, body any, out any)
 	return nil
 }
 
+// apiError extracts the first Apple error detail, falling back to the HTTP status.
 func apiError(status int, data []byte) *APIError {
 	var answer struct {
 		Errors []struct {

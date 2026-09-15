@@ -82,6 +82,27 @@ func TestClientRejectsUnsafePagination(t *testing.T) {
 	}
 }
 
+// TestClientRejectsPartialLists propagates failures on a later page instead of hiding missing resources.
+func TestClientRejectsPartialLists(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("cursor") != "" {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		fmt.Fprint(w, `{"data":[{"id":"first"}],"links":{"next":"?cursor=second"}}`)
+	}))
+	defer server.Close()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	client := NewClient(server.URL+"/v1", "key", "issuer", key)
+	devices, err := client.ListIOSDevices(context.Background())
+	require.ErrorIs(t, err, ErrUnavailable)
+	assert.Nil(t, devices)
+	certificates, err := client.ListDistributionCertificates(context.Background())
+	require.ErrorIs(t, err, ErrUnavailable)
+	assert.Nil(t, certificates)
+}
+
 func pemPrivateKey(t *testing.T, key any) string {
 	t.Helper()
 	der, err := x509.MarshalPKCS8PrivateKey(key)

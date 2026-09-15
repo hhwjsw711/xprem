@@ -29,6 +29,7 @@ type berElement struct {
 	content []byte
 }
 
+// constructed reports whether the BER tag contains child elements.
 func (e berElement) constructed() bool {
 	return e.tag&constructedBit != 0
 }
@@ -87,6 +88,7 @@ func validateBER(element berElement, depth int) error {
 	return nil
 }
 
+// readBER reads one bounded BER element, supporting definite and indefinite lengths.
 func readBER(data []byte, depth int) (berElement, []byte, error) {
 	if depth > maxBERDepth || len(data) < 2 || data[0]&0x1f == 0x1f {
 		return berElement{}, nil, errMalformed
@@ -169,6 +171,7 @@ func octets(element berElement) ([]byte, error) {
 	return content.Bytes(), nil
 }
 
+// isOID compares a BER object identifier with the expected ASN.1 identifier.
 func isOID(element berElement, expected asn1.ObjectIdentifier) bool {
 	if element.tag != tagOID {
 		return false

@@ -62,6 +62,7 @@ func (s *PostgresAppIdentifierStore) InsertAppIdentifier(ctx context.Context, ap
 	return id, nil
 }
 
+// GetAppIdentifiers lists app identifiers with their platform signing-credential readiness.
 func (s *PostgresAppIdentifierStore) GetAppIdentifiers(ctx context.Context, appId string) ([]AppIdentifierRow, error) {
 	rows, err := s.engine.Queries.GetAppIdentifiersByAppID(ctx, ToPgUUID(appId))
 	if err != nil {

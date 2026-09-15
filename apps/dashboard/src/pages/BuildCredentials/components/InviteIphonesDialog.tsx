@@ -23,6 +23,7 @@ const EXPIRY_OPTIONS = [
   { hours: 720, label: '30 days' },
 ];
 
+/** Creates an expiring single-use invitation and shows its link and QR code once. */
 export const InviteIphonesDialog = ({
   isOpen,
   onClose,
@@ -39,6 +40,7 @@ export const InviteIphonesDialog = ({
   // Held for the life of the dialog only: the server never hands the URL back a second time.
   const [created, setCreated] = useState<CreateIosDeviceInvitationResponse | null>(null);
 
+  /** Clears the generated registration link when the invitation dialog closes. */
   const handleClose = () => {
     if (isCreating) return;
     setLabel('');
@@ -47,6 +49,7 @@ export const InviteIphonesDialog = ({
     onClose();
   };
 
+  /** Creates an invitation using the selected label and expiration period. */
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsCreating(true);

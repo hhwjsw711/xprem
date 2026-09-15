@@ -93,6 +93,7 @@ func logLegacyAppIdFallback() {
 	}
 }
 
+// InitDependencies wires application stores and services and returns their cleanup function.
 func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 	var authRepo services.CliAuthRepository
 	var appRepo services.AppRepository
