@@ -34,6 +34,7 @@ type AppIdentifier struct {
 	Identifier            string         `json:"identifier"`
 	BuildNumber           string         `json:"buildNumber"`
 	HasAndroidCredentials bool           `json:"hasAndroidCredentials"`
+	HasIosCredentials     bool           `json:"hasIosCredentials"`
 	CreatedAt             string         `json:"createdAt"`
 }
 
@@ -114,6 +115,7 @@ func (s *AppIdentifierService) GetAppIdentifiers(ctx context.Context, appId stri
 			Identifier:            row.Identifier,
 			BuildNumber:           row.BuildNumber,
 			HasAndroidCredentials: row.HasAndroidCredentials,
+			HasIosCredentials:     row.HasIosCredentials,
 			CreatedAt:             row.CreatedAt.UTC().Format(time.RFC3339),
 		}
 	}

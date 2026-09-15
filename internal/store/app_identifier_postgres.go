@@ -21,6 +21,7 @@ type AppIdentifierRow struct {
 	Identifier            string
 	BuildNumber           string
 	HasAndroidCredentials bool
+	HasIosCredentials     bool
 	CreatedAt             time.Time
 }
 
@@ -74,6 +75,7 @@ func (s *PostgresAppIdentifierStore) GetAppIdentifiers(ctx context.Context, appI
 			Identifier:            row.Identifier,
 			BuildNumber:           row.BuildNumber,
 			HasAndroidCredentials: row.HasAndroidCredentials,
+			HasIosCredentials:     row.HasIosCredentials,
 			CreatedAt:             row.CreatedAt.Time,
 		}
 	}

@@ -55,6 +55,7 @@ type AppContainer struct {
 	BranchListHandler           *handlers.BranchListHandler
 	ChannelHandler              *dashhandlers.ChannelHandler
 	CredentialsHandler          *dashhandlers.CredentialsHandler
+	IosCredentialsHandler       *dashhandlers.IosCredentialsHandler
 	EnvironmentsHandler         *dashhandlers.EnvironmentsHandler
 	ExpoProtocolHandler         *handlers.ExpoProtocolHandler
 	LicenseHandler              *licensing.LicenseHandler
@@ -115,6 +116,7 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 	var buildCleanup *services.BuildCleanup
 	var appIdentifierRepo services.AppIdentifierRepository
 	var credentialsRepo services.CredentialsRepository
+	var iosCredentialsRepo services.IosCredentialsRepository
 	var environmentRepo services.EnvironmentRepository
 	var licenseRepo licensing.LicenseRepository
 	var ssoRepo sso.SSORepository
@@ -193,6 +195,7 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 		buildRepo = store.NewPostgresBuildStore(dbEngine)
 		buildCleanup = services.NewBuildCleanup(dbEngine.DB, resolvedBucket)
 		credentialsRepo = store.NewPostgresCredentialsStore(dbEngine)
+		iosCredentialsRepo = store.NewPostgresIosCredentialsStore(dbEngine)
 		environmentRepo = store.NewPostgresEnvironmentStore(dbEngine)
 
 		// Resolved even when telemetry is off: licensing needs the instance id.
@@ -330,6 +333,8 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 	appIdentifierService.SetOnAuditEvent(auditService.Record)
 	credentialsService := services.NewCredentialsService(credentialsRepo, appIdentifierRepo)
 	credentialsService.SetOnAuditEvent(auditService.Record)
+	iosCredentialsService := services.NewIosCredentialsService(iosCredentialsRepo, appIdentifierRepo)
+	iosCredentialsService.SetOnAuditEvent(auditService.Record)
 	environmentService := services.NewEnvironmentService(environmentRepo)
 	environmentService.SetOnAuditEvent(auditService.Record)
 
@@ -394,6 +399,7 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 		ChannelHandler:              dashhandlers.NewChannelHandler(channelService),
 		AppIdentifiersHandler:       dashhandlers.NewAppIdentifiersHandler(appIdentifierService),
 		CredentialsHandler:          dashhandlers.NewCredentialsHandler(credentialsService),
+		IosCredentialsHandler:       dashhandlers.NewIosCredentialsHandler(iosCredentialsService),
 		AppIdentifierRepo:           appIdentifierRepo,
 		BuildHandler:                handlers.NewBuildHandler(environmentService, credentialsService, appIdentifierService),
 		BuildRegistryHandler:        handlers.NewBuildRegistryHandler(buildService),
