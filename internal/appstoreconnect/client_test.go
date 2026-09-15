@@ -44,7 +44,7 @@ func TestClientFollowsListPages(t *testing.T) {
 				if endpoint == "devices" && page != "" {
 					entries = append(entries, map[string]any{"id": "mac", "attributes": map[string]string{"platform": "MAC_OS"}})
 				}
-				require.NoError(t, json.NewEncoder(w).Encode(map[string]any{"data": entries, "links": map[string]string{"next": next}}))
+				assert.NoError(t, json.NewEncoder(w).Encode(map[string]any{"data": entries, "links": map[string]string{"next": next}}))
 			}))
 			defer server.Close()
 			key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)

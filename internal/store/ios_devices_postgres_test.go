@@ -409,13 +409,14 @@ func TestIosEnrollmentRejectsUnverifiedDevice(t *testing.T) {
 	f := newDeviceRegistrationFixture(t)
 	f.saveKey(t, f.appId)
 	token := f.createInvitation(t, "")
-	attributes := map[string]string{"UDID": "invented", "CHALLENGE": f.challenge(t, token)}
+	udid := uuid.NewString()
+	attributes := map[string]string{"UDID": udid, "CHALLENGE": f.challenge(t, token)}
 	content, err := plist.Marshal(attributes, plist.XMLFormat)
 	require.NoError(t, err)
 	unsigned := iostest.SignedData(content, true)
 	assert.Equal(t, "invalid-link", f.enroll(t, token, unsigned).Get("error"))
 	assert.Zero(t, f.apple.RequestCount("POST /v1/devices"))
-	assert.False(t, f.hasRegistration(t, "invented"))
+	assert.False(t, f.hasRegistration(t, udid))
 	assert.Equal(t, http.StatusOK, f.do(http.MethodGet, "/device-registrations/"+token, nil).Code)
 	valid := f.enroll(t, token, f.deviceResponseBody(t, attributes))
 	assert.NotEmpty(t, valid.Get("registration"), "rejecting an unsigned request leaves the invitation usable")
