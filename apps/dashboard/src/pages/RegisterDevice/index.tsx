@@ -213,8 +213,8 @@ const RegistrationSteps = ({ token }: { token: string }) => {
       </ol>
 
       <p className="rounded-md border bg-muted/40 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
-        The profile only reads the iPhone identifier and model. Nothing stays installed: iOS
-        discards the profile as soon as it has sent the identifier.
+        The profile only reads the iPhone identifier, model, iOS version and name. Nothing stays
+        installed: iOS discards the profile as soon as it has sent them.
       </p>
     </div>
   );

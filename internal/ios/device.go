@@ -30,11 +30,11 @@ func RegistrationProfile(input RegistrationProfileInput) ([]byte, error) {
 		"PayloadIdentifier":   "dev.xprem.device-registration." + input.PayloadUUID,
 		"PayloadUUID":         input.PayloadUUID,
 		"PayloadDisplayName":  "Register this iPhone for " + input.AppName,
-		"PayloadDescription":  "Sends this iPhone's identifier and model so it can be added to the Apple Developer account of " + input.AppName + " and install its Ad Hoc builds.",
+		"PayloadDescription":  "Sends this iPhone's identifier, model, iOS version and name so it can be added to the Apple Developer account of " + input.AppName + " and install its Ad Hoc builds.",
 		"PayloadOrganization": "xprem",
 		"PayloadContent": map[string]any{
 			"URL":              input.EnrollURL,
-			"DeviceAttributes": []string{"UDID", "PRODUCT", "VERSION", "DEVICE_NAME", "SERIAL"},
+			"DeviceAttributes": []string{"UDID", "PRODUCT", "VERSION", "DEVICE_NAME"},
 			"Challenge":        input.Challenge,
 		},
 	}
@@ -47,7 +47,6 @@ type DeviceAttributes struct {
 	Product    string `plist:"PRODUCT"`
 	Version    string `plist:"VERSION"`
 	DeviceName string `plist:"DEVICE_NAME"`
-	Serial     string `plist:"SERIAL"`
 	Challenge  string `plist:"CHALLENGE"`
 }
 

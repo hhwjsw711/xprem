@@ -52,7 +52,7 @@ func TestRegistrationProfile(t *testing.T) {
 	assert.NotEmpty(t, profile.PayloadDescription)
 	assert.Equal(t, "xprem", profile.PayloadOrganization)
 	assert.Equal(t, "https://ota.example.com/device-registrations/token/enroll", profile.PayloadContent.URL)
-	assert.Equal(t, []string{"UDID", "PRODUCT", "VERSION", "DEVICE_NAME", "SERIAL"}, profile.PayloadContent.DeviceAttributes)
+	assert.Equal(t, []string{"UDID", "PRODUCT", "VERSION", "DEVICE_NAME"}, profile.PayloadContent.DeviceAttributes)
 	assert.Equal(t, "challenge-1", profile.PayloadContent.Challenge)
 }
 
@@ -78,12 +78,12 @@ func TestParseDeviceResponse(t *testing.T) {
 	}
 	attributes, err := verifier.Parse(sign(map[string]string{
 		"UDID": "00008110-000A1B2C3D4E801E", "PRODUCT": "iPhone15,2", "VERSION": "22A3354",
-		"DEVICE_NAME": "Jane's iPhone", "SERIAL": "F2LXXXXXXX", "CHALLENGE": "challenge-1",
+		"DEVICE_NAME": "Jane's iPhone", "CHALLENGE": "challenge-1",
 	}), "challenge-1")
 	require.NoError(t, err)
 	assert.Equal(t, &DeviceAttributes{
 		UDID: "00008110-000A1B2C3D4E801E", Product: "iPhone15,2", Version: "22A3354",
-		DeviceName: "Jane's iPhone", Serial: "F2LXXXXXXX", Challenge: "challenge-1",
+		DeviceName: "Jane's iPhone", Challenge: "challenge-1",
 	}, attributes)
 
 	withoutOptional, err := verifier.Parse(sign(map[string]string{
@@ -91,7 +91,6 @@ func TestParseDeviceResponse(t *testing.T) {
 	}), "challenge-1")
 	require.NoError(t, err)
 	assert.Empty(t, withoutOptional.DeviceName)
-	assert.Empty(t, withoutOptional.Serial)
 
 	for name, data := range map[string][]byte{
 		"wrong challenge": sign(map[string]string{"UDID": "UDID-1", "CHALLENGE": "other"}),

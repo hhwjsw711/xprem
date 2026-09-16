@@ -453,7 +453,8 @@ func (s *IosCredentialsService) EnrollIosDevice(ctx context.Context, token strin
 		registration.AppleDeviceId = &appleDeviceId
 	}
 	// A device Apple already accepted must be recorded even if the tester disconnected.
-	ctx = context.WithoutCancel(ctx)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
 	registrationId, err := s.repo.FinishIosDeviceRegistration(ctx, registration, claimToken)
 	if err != nil {
 		if appleErr == nil {
