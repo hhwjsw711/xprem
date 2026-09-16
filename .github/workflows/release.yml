@@ -102,6 +102,44 @@ jobs:
           name: helm-chart
           path: ./charts/*.tgz
 
+  sign:
+    runs-on: ubuntu-latest
+    needs: [docker, helm]
+    # cosign keyless signs through Sigstore and needs an OIDC token.
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - uses: imjasonh/setup-crane@feee3b6bb0d4c68370f256a4502498c9227e5c6b # v0.7
+
+      - name: Log in to GitHub Container Registry
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | crane auth login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      # GHCR has no OCI referrers API, so signatures use the legacy .sig tag layout.
+      - name: Sign Docker images and Helm charts
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          CHART_VERSION="${REF_NAME#v}"
+          REFS=""
+          for IMAGE in "$OWNER/xprem:$REF_NAME" \
+                       "$OWNER/expo-open-ota:$REF_NAME" \
+                       "$OWNER/charts/xprem:$CHART_VERSION" \
+                       "$OWNER/charts/expo-open-ota:$CHART_VERSION"; do
+            REFS="$REFS ghcr.io/${IMAGE%%:*}@$(crane digest "ghcr.io/$IMAGE")"
+          done
+          cosign sign --yes --new-bundle-format=false $REFS
+
+          for REF in $REFS; do
+            cosign verify "$REF" \
+              --certificate-oidc-issuer=https://token.actions.githubusercontent.com \
+              --certificate-identity="https://github.com/$WORKFLOW_REF"
+          done
+
   npm:
     runs-on: ubuntu-latest
     # npm publish --provenance signs through Sigstore and needs an OIDC token.
@@ -166,7 +204,7 @@ jobs:
 
   github-release:
     runs-on: ubuntu-latest
-    needs: [helm, npm]
+    needs: [sign, npm]
     permissions:
       contents: write
     steps:
