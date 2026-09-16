@@ -36,7 +36,7 @@ transparency log.
 
 ```
 cosign verify ghcr.io/mercuretechnologies/xprem:vX.Y.Z \
-  --certificate-identity-regexp "https://github.com/mercuretechnologies/xprem/" \
+  --certificate-identity-regexp '^https://github.com/mercuretechnologies/xprem/\.github/workflows/release\.yml@refs/tags/v' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
