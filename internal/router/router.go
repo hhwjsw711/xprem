@@ -39,6 +39,7 @@ func NewRouter(container *AppContainer) *mux.Router {
 	registerMCPRoutes(r, container)
 	registerPublishRoutes(r, container)
 	registerBuildRoutes(r, container)
+	registerLinkRoutes(r, container)
 	registerIngestRoutes(r, container)
 	registerClientRoutes(r, container)
 	registerPreAuthRoutes(r, container)
