@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"xprem/internal/appstoreconnect"
 	"xprem/internal/handlers"
+	"xprem/internal/providers/appstoreconnect"
 	"xprem/internal/services"
 	"xprem/internal/types"
 

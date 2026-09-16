@@ -14,7 +14,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"xprem/internal/appstoreconnect/appstoreconnecttest"
+	"xprem/internal/providers/appstoreconnect/appstoreconnecttest"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

@@ -3,9 +3,9 @@ package services
 import (
 	"context"
 	"time"
-	"xprem/internal/appstoreconnect"
 	"xprem/internal/auditlog"
 	"xprem/internal/ios"
+	"xprem/internal/providers/appstoreconnect"
 	"xprem/internal/store"
 	"xprem/internal/types"
 	"xprem/internal/validation"
