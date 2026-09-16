@@ -14,28 +14,14 @@ CREATE TABLE ios_certificates (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE ios_identifier_certificates (
+CREATE TABLE ios_signing_settings (
     app_identifier_id UUID PRIMARY KEY REFERENCES app_identifiers(id) ON DELETE CASCADE,
-    certificate_id UUID NOT NULL REFERENCES ios_certificates(id) ON DELETE CASCADE,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE TABLE ios_provisioning_profiles (
-    id UUID PRIMARY KEY,
-    app_identifier_id UUID NOT NULL REFERENCES app_identifiers(id) ON DELETE CASCADE,
-    bundle_identifier TEXT NOT NULL,
-    profile_uuid TEXT NOT NULL,
-    name TEXT NOT NULL,
-    team_id TEXT NOT NULL,
-    profile_type TEXT NOT NULL CHECK (profile_type IN ('app-store', 'ad-hoc', 'enterprise', 'development')),
-    expires_at TIMESTAMPTZ NOT NULL,
-    device_count INTEGER NOT NULL DEFAULT 0,
-    certificate_fingerprints TEXT[] NOT NULL,
-    sealed_profile TEXT NOT NULL,
+    mode TEXT NOT NULL CHECK (mode IN ('automatic', 'certificate')),
+    -- NULL in mode 'certificate' means the selected certificate was deleted.
+    certificate_id UUID REFERENCES ios_certificates(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    UNIQUE (app_identifier_id, bundle_identifier)
+    CHECK (mode = 'certificate' OR certificate_id IS NULL)
 );
 
 CREATE TABLE app_store_connect_api_keys (
@@ -50,6 +36,5 @@ CREATE TABLE app_store_connect_api_keys (
 
 -- +goose Down
 DROP TABLE app_store_connect_api_keys;
-DROP TABLE ios_provisioning_profiles;
-DROP TABLE ios_identifier_certificates;
+DROP TABLE ios_signing_settings;
 DROP TABLE ios_certificates;
