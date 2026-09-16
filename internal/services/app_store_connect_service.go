@@ -123,14 +123,25 @@ func (s *IosCredentialsService) GetAppStoreConnectApiKeyMetadata(ctx context.Con
 	}, nil
 }
 
-// DeleteAppStoreConnectApiKey deletes the app team credentials and records the management event.
+// DeleteAppStoreConnectApiKey deletes the app team credentials, revokes the app's pending iPhone
+// registration links, and records the management events.
 func (s *IosCredentialsService) DeleteAppStoreConnectApiKey(ctx context.Context, appId string) error {
 	appId, err := s.canonicalAppID(appId)
 	if err != nil {
 		return err
 	}
-	if err := s.repo.DeleteAppStoreConnectApiKey(ctx, appId); err != nil {
+	revoked, err := s.repo.DeleteAppStoreConnectApiKey(ctx, appId)
+	if err != nil {
 		return err
+	}
+	for _, invitation := range revoked {
+		recordManagementEvent(ctx, s.onAuditEvent, auditlog.Event{
+			Action:        auditlog.ActionIosDeviceInvitationRevoked,
+			TargetType:    "ios_device_invitation",
+			TargetID:      invitation.Id,
+			TargetDisplay: invitation.Label,
+			AppID:         appId,
+		})
 	}
 	recordManagementEvent(ctx, s.onAuditEvent, auditlog.Event{
 		Action:     auditlog.ActionAppStoreConnectApiKeyDeleted,
@@ -253,7 +264,6 @@ func (s *IosCredentialsService) ImportIosCertificate(ctx context.Context, appId 
 		Type:            certificate.Type,
 		TeamID:          certificate.TeamID,
 		ExpiresAt:       certificate.ExpiresAt,
-		Source:          types.IosCertificateUploaded,
 	}, func(certificateId string) (string, string, error) {
 		sealedCertificate, err := crypto.SealAESGCM(p12, masterKey, iosCertificateAAD(certificateId, "certificate"))
 		if err != nil {
@@ -281,16 +291,18 @@ func (s *IosCredentialsService) ImportIosCertificate(ctx context.Context, appId 
 	return certificates, nil
 }
 
-// appleTeamID reads the team of the app's API key from its distribution certificates; "" when the app
-// has no key or the team lists none.
+// appleTeamID reads the team of the app's API key from its distribution certificates.
 func (s *IosCredentialsService) appleTeamID(ctx context.Context, appId string) (string, error) {
 	appId, err := s.canonicalAppID(appId)
 	if err != nil {
 		return "", err
 	}
 	key, err := s.repo.GetAppStoreConnectApiKey(ctx, appId)
-	if err != nil || key == nil {
+	if err != nil {
 		return "", err
+	}
+	if key == nil {
+		return "", validation.Errorf("", "Add an App Store Connect API key first")
 	}
 	client, err := s.appStoreConnectClient(ctx, appId)
 	if err != nil {
@@ -306,7 +318,7 @@ func (s *IosCredentialsService) appleTeamID(ctx context.Context, appId string) (
 			return parsed.Subject.OrganizationalUnit[0], nil
 		}
 	}
-	return "", nil
+	return "", validation.Errorf("", "Apple lists no distribution certificate for this team, so the certificate cannot be matched to it")
 }
 
 // appStoreConnectClient decrypts the app API key and constructs its authenticated Apple client.

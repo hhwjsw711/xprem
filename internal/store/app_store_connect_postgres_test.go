@@ -50,7 +50,7 @@ func (f *appStoreConnectFixture) saveKey(t *testing.T, appId string) {
 }
 
 func TestAppStoreConnectApiKeyValidation(t *testing.T) {
-	f := newAppStoreConnectFixture(t)
+	f := newDeviceRegistrationFixture(t)
 	ctx := context.Background()
 
 	metadata, err := f.service.GetAppStoreConnectApiKeyMetadata(ctx, f.appId)
@@ -95,10 +95,43 @@ func TestAppStoreConnectApiKeyValidation(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, f.apple.PrivateKeyPEM, string(plain))
 
+	expiredToken := f.createInvitation(t, "Expired")
+	_, err = f.pool.Exec(ctx, "UPDATE ios_device_invitations SET expires_at = now() - interval '1 hour' WHERE token_hash = encode(sha256($1::bytea), 'hex')", expiredToken)
+	require.NoError(t, err)
+	pendingToken := f.createInvitation(t, "Pending")
+	usedToken := f.createInvitation(t, "Used")
+	assert.Empty(t, f.enroll(t, usedToken, f.deviceResponseBody(t, map[string]string{"UDID": "UDID-USED", "CHALLENGE": f.challenge(t, usedToken)})).Get("error"))
 	require.NoError(t, f.service.DeleteAppStoreConnectApiKey(ctx, f.appId))
 	notFoundErr := (*store.ErrResourceNotFound)(nil)
 	assert.ErrorAs(t, f.service.DeleteAppStoreConnectApiKey(ctx, f.appId), &notFoundErr)
-	assert.Equal(t, []auditlog.Action{auditlog.ActionAppStoreConnectApiKeySaved, auditlog.ActionAppStoreConnectApiKeyDeleted}, f.actions)
+
+	invitations, err := f.service.ListIosDeviceInvitations(ctx, f.appId)
+	require.NoError(t, err)
+	require.Len(t, invitations, 3)
+	assert.Equal(t, services.IosDeviceInvitationUsed, invitations[0].Status, "a used link is untouched")
+	assert.Equal(t, services.IosDeviceInvitationRevoked, invitations[1].Status, "deleting the key revokes the pending link")
+	assert.Equal(t, services.IosDeviceInvitationExpired, invitations[2].Status, "an expired link is not revoked")
+	response := f.do(http.MethodGet, "/device-registrations/"+pendingToken, nil)
+	assert.Equal(t, http.StatusNotFound, response.Code)
+	assert.JSONEq(t, `{"error":"invalid-link"}`, response.Body.String())
+	assert.Equal(t, http.StatusGone, f.do(http.MethodGet, "/device-registrations/"+usedToken, nil).Code)
+	assert.Equal(t, []auditlog.Action{
+		auditlog.ActionAppStoreConnectApiKeySaved,
+		auditlog.ActionIosDeviceInvitationCreated,
+		auditlog.ActionIosDeviceInvitationCreated,
+		auditlog.ActionIosDeviceInvitationCreated,
+		auditlog.ActionIosDeviceRegistered,
+		auditlog.ActionIosDeviceInvitationRevoked,
+		auditlog.ActionAppStoreConnectApiKeyDeleted,
+	}, f.actions)
+	assert.Equal(t, auditlog.Event{
+		Action:        auditlog.ActionIosDeviceInvitationRevoked,
+		TargetType:    "ios_device_invitation",
+		TargetID:      invitations[1].Id,
+		TargetDisplay: "Pending",
+		AppID:         f.appId,
+		Outcome:       auditlog.OutcomeSuccess,
+	}, f.events[5])
 }
 
 func TestListIosSigningCertificates(t *testing.T) {
@@ -195,33 +228,28 @@ func TestImportIosCertificate(t *testing.T) {
 	assert.Equal(t, certificates, listed, "the response is the refreshed listing")
 	certificateId := *certificates[0].XpremCertificateId
 
-	readSealed := func() (string, string, types.IosCertificateSource) {
+	readSealed := func() (string, string) {
 		var p12, password string
-		var source types.IosCertificateSource
-		require.NoError(t, f.pool.QueryRow(ctx, "SELECT sealed_certificate, sealed_certificate_password, source FROM ios_certificates WHERE id = $1", certificateId).Scan(&p12, &password, &source))
+		require.NoError(t, f.pool.QueryRow(ctx, "SELECT sealed_certificate, sealed_certificate_password FROM ios_certificates WHERE id = $1", certificateId).Scan(&p12, &password))
 		plainP12, err := crypto.UnsealAESGCM(p12, []byte(iosMasterKey), []byte(certificateId+"|ios_certificates|certificate"))
 		require.NoError(t, err)
 		plainPassword, err := crypto.UnsealAESGCM(password, []byte(iosMasterKey), []byte(certificateId+"|ios_certificates|certificate_password"))
 		require.NoError(t, err)
 		_, err = ios.ParseCertificate(plainP12, string(plainPassword))
 		require.NoError(t, err)
-		return string(plainP12), string(plainPassword), source
+		return string(plainP12), string(plainPassword)
 	}
-	_, password, source := readSealed()
+	_, password := readSealed()
 	assert.Equal(t, "secret", password)
-	assert.Equal(t, types.IosCertificateUploaded, source)
 	metadata, err := f.service.GetIosCredentialsMetadata(ctx, f.appId, identifierId)
 	require.NoError(t, err)
 	assert.Equal(t, services.IosSigningSettingView{Mode: types.IosSigningAutomatic}, metadata.Signing, "importing does not select the certificate")
 
-	_, err = f.pool.Exec(ctx, "UPDATE ios_certificates SET source = 'generated' WHERE id = $1", certificateId)
-	require.NoError(t, err)
 	certificates, err = importP12(fingerprint, outside.P12(""), "")
 	require.NoError(t, err)
 	assert.Equal(t, certificateId, *certificates[0].XpremCertificateId, "a re-upload keeps the pool row")
-	_, password, source = readSealed()
+	_, password = readSealed()
 	assert.Empty(t, password, "a re-upload replaces the file and its password")
-	assert.Equal(t, types.IosCertificateGenerated, source, "a re-upload keeps the source")
 
 	assert.Equal(t, []auditlog.Action{
 		auditlog.ActionAppStoreConnectApiKeySaved,

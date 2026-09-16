@@ -329,18 +329,17 @@ type IdentityValueStat struct {
 }
 
 type IosCertificate struct {
-	ID                        pgtype.UUID                `json:"id"`
-	SealedCertificate         string                     `json:"sealed_certificate"`
-	SealedCertificatePassword string                     `json:"sealed_certificate_password"`
-	CommonName                string                     `json:"common_name"`
-	SerialNumber              string                     `json:"serial_number"`
-	FingerprintSha1           string                     `json:"fingerprint_sha1"`
-	CertificateType           types.IosCertificateType   `json:"certificate_type"`
-	TeamID                    string                     `json:"team_id"`
-	ExpiresAt                 pgtype.Timestamptz         `json:"expires_at"`
-	Source                    types.IosCertificateSource `json:"source"`
-	CreatedAt                 pgtype.Timestamptz         `json:"created_at"`
-	UpdatedAt                 pgtype.Timestamptz         `json:"updated_at"`
+	ID                        pgtype.UUID              `json:"id"`
+	SealedCertificate         string                   `json:"sealed_certificate"`
+	SealedCertificatePassword string                   `json:"sealed_certificate_password"`
+	CommonName                string                   `json:"common_name"`
+	SerialNumber              string                   `json:"serial_number"`
+	FingerprintSha1           string                   `json:"fingerprint_sha1"`
+	CertificateType           types.IosCertificateType `json:"certificate_type"`
+	TeamID                    string                   `json:"team_id"`
+	ExpiresAt                 pgtype.Timestamptz       `json:"expires_at"`
+	CreatedAt                 pgtype.Timestamptz       `json:"created_at"`
+	UpdatedAt                 pgtype.Timestamptz       `json:"updated_at"`
 }
 
 type IosDeviceInvitation struct {

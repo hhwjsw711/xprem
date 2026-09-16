@@ -155,6 +155,20 @@ func TestListIOSDevicesLeavesOutMacs(t *testing.T) {
 	assert.Equal(t, []string{"IPHONE", "IPAD", "DISABLED-IPHONE"}, ids)
 }
 
+func TestFindDeviceReturnsStatus(t *testing.T) {
+	server := appstoreconnecttest.New(t)
+	server.Devices = []appstoreconnecttest.Device{{ID: "DEVICE1", UDID: "UDID-1", Platform: "IOS", DeviceClass: "IPHONE", Status: "DISABLED"}}
+	client := fakeClient(t, server)
+	device, err := client.FindDevice(context.Background(), "UDID-1")
+	require.NoError(t, err)
+	require.NotNil(t, device)
+	assert.Equal(t, "DEVICE1", device.ID)
+	assert.Equal(t, "DISABLED", device.Status)
+	missing, err := client.FindDevice(context.Background(), "UDID-2")
+	require.NoError(t, err)
+	assert.Nil(t, missing)
+}
+
 func TestClientErrors(t *testing.T) {
 	server := appstoreconnecttest.New(t)
 	client := fakeClient(t, server)

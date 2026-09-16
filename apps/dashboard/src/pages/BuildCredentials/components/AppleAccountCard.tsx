@@ -222,7 +222,7 @@ export const AppleAccountCard = ({ apiKey, apiKeyError, onRetry, canManage, onCh
         isDeleting={isDeleting}
         title="Remove App Store Connect API key"
         resourceName={apiKey ? `API key ${apiKey.keyId}` : undefined}
-        descriptionText="The API key will be permanently removed from this app. Certificates and profiles already stored will not be changed."
+        descriptionText="The API key will be permanently removed from this app. Certificates and profiles already stored will not be changed. Pending iPhone registration links will be revoked."
         confirmButtonText="Remove key"
         isDeletingButtonText="Removing…"
       />

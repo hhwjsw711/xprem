@@ -187,6 +187,13 @@ export const IosSigningSection = ({
     enabled: !!selectedAppId && hasApiKey && canManage && mode === 'certificate',
   });
 
+  const savedCertificateUnavailable =
+    !!savedCertificateId &&
+    !!certificatesQuery.data &&
+    !certificatesQuery.data.some(
+      certificate => certificate.xpremCertificateId === savedCertificateId
+    );
+
   const isDirty =
     mode !== setting.mode || (mode === 'certificate' && certificateId !== savedCertificateId);
   const canSave = isDirty && (mode === 'automatic' || !!certificateId);
@@ -281,6 +288,13 @@ export const IosSigningSection = ({
                 <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
                 The selected certificate no longer exists. Select another one or switch to automatic
                 management.
+              </p>
+            )}
+            {savedCertificateUnavailable && (
+              <p className="flex items-center gap-1.5 text-xs font-medium text-amber-700 dark:text-amber-400">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                The selected certificate is not available for this Apple account. Select another one
+                or switch to automatic management.
               </p>
             )}
 

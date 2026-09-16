@@ -168,6 +168,8 @@ func (h *IosCredentialsHandler) EnrollIosDeviceHandler(w http.ResponseWriter, r 
 	switch {
 	case used:
 		target += "?error=used"
+	case validation.IsValidationError(err):
+		target += "?error=enrollment"
 	case err != nil:
 		target += "?error=invalid-link"
 	default:

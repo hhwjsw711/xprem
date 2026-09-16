@@ -9,7 +9,6 @@ CREATE TABLE ios_certificates (
     certificate_type TEXT NOT NULL CHECK (certificate_type IN ('distribution', 'development')),
     team_id TEXT NOT NULL,
     expires_at TIMESTAMPTZ NOT NULL,
-    source TEXT NOT NULL CHECK (source IN ('generated', 'uploaded')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );

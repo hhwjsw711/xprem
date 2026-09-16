@@ -8,14 +8,6 @@ const (
 	IosCertificateDevelopment  IosCertificateType = "development"
 )
 
-// IosCertificateSource says whether xprem created the certificate at Apple or received its .p12.
-type IosCertificateSource string
-
-const (
-	IosCertificateGenerated IosCertificateSource = "generated"
-	IosCertificateUploaded  IosCertificateSource = "uploaded"
-)
-
 // IosSigningMode says whether xprem picks the signing certificate or uses a selected pool certificate.
 type IosSigningMode string
 

@@ -35,7 +35,7 @@ func (q *Queries) ClaimIosDeviceInvitation(ctx context.Context, arg ClaimIosDevi
 
 const consumeIosDeviceInvitation = `-- name: ConsumeIosDeviceInvitation :execrows
 UPDATE ios_device_invitations SET consumed_at = now(), registration_id = $2, claimed_at = NULL, claim_token = NULL
-WHERE id = $1 AND claim_token = $3 AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at > now()
+WHERE id = $1 AND claim_token = $3 AND consumed_at IS NULL
 `
 
 type ConsumeIosDeviceInvitationParams struct {
@@ -315,4 +315,35 @@ func (q *Queries) RevokeIosDeviceInvitation(ctx context.Context, arg RevokeIosDe
 	var label string
 	err := row.Scan(&label)
 	return label, err
+}
+
+const revokePendingIosDeviceInvitations = `-- name: RevokePendingIosDeviceInvitations :many
+UPDATE ios_device_invitations SET revoked_at = now()
+WHERE app_id = $1 AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at > now()
+RETURNING id, label
+`
+
+type RevokePendingIosDeviceInvitationsRow struct {
+	ID    pgtype.UUID `json:"id"`
+	Label string      `json:"label"`
+}
+
+func (q *Queries) RevokePendingIosDeviceInvitations(ctx context.Context, appID pgtype.UUID) ([]RevokePendingIosDeviceInvitationsRow, error) {
+	rows, err := q.db.Query(ctx, revokePendingIosDeviceInvitations, appID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []RevokePendingIosDeviceInvitationsRow
+	for rows.Next() {
+		var i RevokePendingIosDeviceInvitationsRow
+		if err := rows.Scan(&i.ID, &i.Label); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

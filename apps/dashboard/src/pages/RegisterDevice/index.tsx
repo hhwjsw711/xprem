@@ -61,6 +61,18 @@ const UsedLink = () => (
   </Message>
 );
 
+/** Explains that the iPhone's signed response did not verify and offers to restart. */
+const EnrollmentError = ({ onRetry }: { onRetry: () => void }) => (
+  <Message
+    icon={<TriangleAlert className="h-8 w-8 text-amber-600 dark:text-amber-400" />}
+    title="The iPhone's response could not be verified.">
+    <p className="text-sm text-muted-foreground">Try installing the profile again.</p>
+    <Button variant="outline" onClick={onRetry}>
+      Start over
+    </Button>
+  </Message>
+);
+
 /** Offers a retry when public registration metadata cannot be loaded. */
 const LoadError = ({ onRetry }: { onRetry: () => void }) => (
   <Message
@@ -176,7 +188,7 @@ const RegistrationSteps = ({ token }: { token: string }) => {
           </span>
           <div className="min-w-0 flex-1 space-y-3 pt-0.5 text-sm text-muted-foreground">
             <p>
-              Tap <Ui>Install registration profile</Ui>.
+              Tap <Ui>Install registration profile</Ui>, then tap <Ui>Allow</Ui>.
             </p>
             <Button asChild size="lg" className="h-12 w-full text-base">
               <a href={api.deviceRegistrationProfileUrl(token)}>Install registration profile</a>
@@ -189,7 +201,7 @@ const RegistrationSteps = ({ token }: { token: string }) => {
           </span>
           <p className="pt-0.5 text-sm text-muted-foreground">
             Open <Ui>Settings</Ui> → <Ui>Profile Downloaded</Ui> → <Ui>Install</Ui>. iOS shows “Not
-            Verified”: that is expected.
+            Signed” in red: that is expected.
           </p>
         </li>
         <li className="flex gap-3">
@@ -201,8 +213,8 @@ const RegistrationSteps = ({ token }: { token: string }) => {
       </ol>
 
       <p className="rounded-md border bg-muted/40 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
-        The profile only reads the iPhone identifier and model. You can remove it afterwards in{' '}
-        <Ui>Settings</Ui> → <Ui>General</Ui> → <Ui>VPN & Device Management</Ui>.
+        The profile only reads the iPhone identifier and model. Nothing stays installed: iOS
+        discards the profile as soon as it has sent the identifier.
       </p>
     </div>
   );
@@ -211,7 +223,7 @@ const RegistrationSteps = ({ token }: { token: string }) => {
 /** Public page opened on the tester's iPhone: it never uses the dashboard session. */
 export const RegisterDevice = () => {
   const { token = '' } = useParams<{ token: string }>();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const registrationId = searchParams.get('registration');
 
   return (
@@ -220,6 +232,8 @@ export const RegisterDevice = () => {
         <InvalidLink />
       ) : searchParams.get('error') === 'used' ? (
         <UsedLink />
+      ) : searchParams.get('error') === 'enrollment' ? (
+        <EnrollmentError onRetry={() => setSearchParams({})} />
       ) : registrationId ? (
         <RegistrationResult token={token} registrationId={registrationId} />
       ) : (

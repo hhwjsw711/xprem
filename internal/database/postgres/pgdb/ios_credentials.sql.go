@@ -50,21 +50,20 @@ func (q *Queries) GetAppStoreConnectApiKey(ctx context.Context, appID pgtype.UUI
 
 const getIosCertificate = `-- name: GetIosCertificate :one
 SELECT id, common_name, serial_number, fingerprint_sha1, certificate_type, team_id,
-       expires_at, source, created_at
+       expires_at, created_at
 FROM ios_certificates
 WHERE id = $1
 `
 
 type GetIosCertificateRow struct {
-	ID              pgtype.UUID                `json:"id"`
-	CommonName      string                     `json:"common_name"`
-	SerialNumber    string                     `json:"serial_number"`
-	FingerprintSha1 string                     `json:"fingerprint_sha1"`
-	CertificateType types.IosCertificateType   `json:"certificate_type"`
-	TeamID          string                     `json:"team_id"`
-	ExpiresAt       pgtype.Timestamptz         `json:"expires_at"`
-	Source          types.IosCertificateSource `json:"source"`
-	CreatedAt       pgtype.Timestamptz         `json:"created_at"`
+	ID              pgtype.UUID              `json:"id"`
+	CommonName      string                   `json:"common_name"`
+	SerialNumber    string                   `json:"serial_number"`
+	FingerprintSha1 string                   `json:"fingerprint_sha1"`
+	CertificateType types.IosCertificateType `json:"certificate_type"`
+	TeamID          string                   `json:"team_id"`
+	ExpiresAt       pgtype.Timestamptz       `json:"expires_at"`
+	CreatedAt       pgtype.Timestamptz       `json:"created_at"`
 }
 
 func (q *Queries) GetIosCertificate(ctx context.Context, id pgtype.UUID) (GetIosCertificateRow, error) {
@@ -78,7 +77,6 @@ func (q *Queries) GetIosCertificate(ctx context.Context, id pgtype.UUID) (GetIos
 		&i.CertificateType,
 		&i.TeamID,
 		&i.ExpiresAt,
-		&i.Source,
 		&i.CreatedAt,
 	)
 	return i, err
@@ -105,23 +103,22 @@ func (q *Queries) GetIosSigningSetting(ctx context.Context, appIdentifierID pgty
 const insertIosCertificate = `-- name: InsertIosCertificate :one
 INSERT INTO ios_certificates (
     id, sealed_certificate, sealed_certificate_password, common_name, serial_number,
-    fingerprint_sha1, certificate_type, team_id, expires_at, source
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+    fingerprint_sha1, certificate_type, team_id, expires_at
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 ON CONFLICT (fingerprint_sha1) DO UPDATE SET fingerprint_sha1 = EXCLUDED.fingerprint_sha1
 RETURNING id
 `
 
 type InsertIosCertificateParams struct {
-	ID                        pgtype.UUID                `json:"id"`
-	SealedCertificate         string                     `json:"sealed_certificate"`
-	SealedCertificatePassword string                     `json:"sealed_certificate_password"`
-	CommonName                string                     `json:"common_name"`
-	SerialNumber              string                     `json:"serial_number"`
-	FingerprintSha1           string                     `json:"fingerprint_sha1"`
-	CertificateType           types.IosCertificateType   `json:"certificate_type"`
-	TeamID                    string                     `json:"team_id"`
-	ExpiresAt                 pgtype.Timestamptz         `json:"expires_at"`
-	Source                    types.IosCertificateSource `json:"source"`
+	ID                        pgtype.UUID              `json:"id"`
+	SealedCertificate         string                   `json:"sealed_certificate"`
+	SealedCertificatePassword string                   `json:"sealed_certificate_password"`
+	CommonName                string                   `json:"common_name"`
+	SerialNumber              string                   `json:"serial_number"`
+	FingerprintSha1           string                   `json:"fingerprint_sha1"`
+	CertificateType           types.IosCertificateType `json:"certificate_type"`
+	TeamID                    string                   `json:"team_id"`
+	ExpiresAt                 pgtype.Timestamptz       `json:"expires_at"`
 }
 
 // DO UPDATE instead of DO NOTHING so RETURNING yields the id of an existing row.
@@ -136,7 +133,6 @@ func (q *Queries) InsertIosCertificate(ctx context.Context, arg InsertIosCertifi
 		arg.CertificateType,
 		arg.TeamID,
 		arg.ExpiresAt,
-		arg.Source,
 	)
 	var id pgtype.UUID
 	err := row.Scan(&id)
@@ -145,21 +141,20 @@ func (q *Queries) InsertIosCertificate(ctx context.Context, arg InsertIosCertifi
 
 const listIosCertificates = `-- name: ListIosCertificates :many
 SELECT id, common_name, serial_number, fingerprint_sha1, certificate_type, team_id,
-       expires_at, source, created_at
+       expires_at, created_at
 FROM ios_certificates
 ORDER BY created_at DESC, id
 `
 
 type ListIosCertificatesRow struct {
-	ID              pgtype.UUID                `json:"id"`
-	CommonName      string                     `json:"common_name"`
-	SerialNumber    string                     `json:"serial_number"`
-	FingerprintSha1 string                     `json:"fingerprint_sha1"`
-	CertificateType types.IosCertificateType   `json:"certificate_type"`
-	TeamID          string                     `json:"team_id"`
-	ExpiresAt       pgtype.Timestamptz         `json:"expires_at"`
-	Source          types.IosCertificateSource `json:"source"`
-	CreatedAt       pgtype.Timestamptz         `json:"created_at"`
+	ID              pgtype.UUID              `json:"id"`
+	CommonName      string                   `json:"common_name"`
+	SerialNumber    string                   `json:"serial_number"`
+	FingerprintSha1 string                   `json:"fingerprint_sha1"`
+	CertificateType types.IosCertificateType `json:"certificate_type"`
+	TeamID          string                   `json:"team_id"`
+	ExpiresAt       pgtype.Timestamptz       `json:"expires_at"`
+	CreatedAt       pgtype.Timestamptz       `json:"created_at"`
 }
 
 func (q *Queries) ListIosCertificates(ctx context.Context) ([]ListIosCertificatesRow, error) {
@@ -179,7 +174,6 @@ func (q *Queries) ListIosCertificates(ctx context.Context) ([]ListIosCertificate
 			&i.CertificateType,
 			&i.TeamID,
 			&i.ExpiresAt,
-			&i.Source,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err

@@ -194,19 +194,20 @@ func listResources[T any](ctx context.Context, client *Client, path string) ([]r
 	}
 }
 
-// FindDevice returns the Apple id of the device with this UDID, or "" when it is not registered.
-func (c *Client) FindDevice(ctx context.Context, udid string) (string, error) {
+// FindDevice returns the team's device with this UDID, or nil when it is not registered.
+func (c *Client) FindDevice(ctx context.Context, udid string) (*Device, error) {
 	query := url.Values{"filter[udid]": {udid}, "limit": {"200"}}
 	var list listDocument[deviceAttributes]
 	if err := c.do(ctx, http.MethodGet, "/devices?"+query.Encode(), nil, &list); err != nil {
-		return "", err
+		return nil, err
 	}
 	for _, device := range list.Data {
 		if strings.EqualFold(device.Attributes.UDID, udid) {
-			return device.ID, nil
+			found := device.Attributes.device(device.ID)
+			return &found, nil
 		}
 	}
-	return "", nil
+	return nil, nil
 }
 
 // RegisterIOSDevice adds an iOS device to the team and returns its Apple id.

@@ -134,6 +134,12 @@ func (s *PostgresIosCredentialsStore) RevokeIosDeviceInvitation(ctx context.Cont
 	return label, nil
 }
 
+// RevokedIosDeviceInvitation is a pending link revoked when its app's API key is deleted.
+type RevokedIosDeviceInvitation struct {
+	Id    string
+	Label string
+}
+
 // ResolveIosDeviceInvitation returns (nil, nil) for an unknown, expired or revoked link; a consumed link is returned.
 func (s *PostgresIosCredentialsStore) ResolveIosDeviceInvitation(ctx context.Context, tokenHash string) (*ActiveIosDeviceInvitation, error) {
 	row, err := s.engine.Queries.ResolveIosDeviceInvitation(ctx, tokenHash)

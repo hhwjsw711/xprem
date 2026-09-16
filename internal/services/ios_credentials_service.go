@@ -21,7 +21,7 @@ type IosCredentialsRepository interface {
 	UpsertIosSigningSetting(ctx context.Context, identifierId string, setting store.IosSigningSetting) error
 	UpsertAppStoreConnectApiKey(ctx context.Context, appId string, key store.SealedAppStoreConnectApiKey) error
 	GetAppStoreConnectApiKey(ctx context.Context, appId string) (*store.SealedAppStoreConnectApiKey, error)
-	DeleteAppStoreConnectApiKey(ctx context.Context, appId string) error
+	DeleteAppStoreConnectApiKey(ctx context.Context, appId string) ([]store.RevokedIosDeviceInvitation, error)
 	InsertIosDeviceInvitation(ctx context.Context, invitation store.NewIosDeviceInvitation) (time.Time, error)
 	ListIosDeviceInvitations(ctx context.Context, appId string) ([]store.IosDeviceInvitation, error)
 	RevokeIosDeviceInvitation(ctx context.Context, appId string, invitationId string) (string, error)
@@ -48,13 +48,12 @@ type IosSigningSettingView struct {
 }
 
 type IosCertificateMetadata struct {
-	Id           string                     `json:"id"`
-	CommonName   string                     `json:"commonName"`
-	SerialNumber string                     `json:"serialNumber"`
-	Type         types.IosCertificateType   `json:"type"`
-	TeamID       string                     `json:"teamId"`
-	ExpiresAt    string                     `json:"expiresAt"`
-	Source       types.IosCertificateSource `json:"source"`
+	Id           string                   `json:"id"`
+	CommonName   string                   `json:"commonName"`
+	SerialNumber string                   `json:"serialNumber"`
+	Type         types.IosCertificateType `json:"type"`
+	TeamID       string                   `json:"teamId"`
+	ExpiresAt    string                   `json:"expiresAt"`
 }
 
 // IosSigningSettingInput is a signing choice submitted for an identifier.
@@ -169,7 +168,6 @@ func (s *IosCredentialsService) selectedCertificate(ctx context.Context, certifi
 		Type:         certificate.Type,
 		TeamID:       certificate.TeamID,
 		ExpiresAt:    certificate.ExpiresAt.UTC().Format(time.RFC3339),
-		Source:       certificate.Source,
 	}, nil
 }
 
@@ -210,7 +208,7 @@ func (s *IosCredentialsService) UpdateIosSigningSetting(ctx context.Context, app
 }
 
 // selectableCertificate loads an unexpired distribution certificate of the pool that belongs to the
-// team of the app's API key, when the team can be told.
+// team of the app's API key.
 func (s *IosCredentialsService) selectableCertificate(ctx context.Context, appId string, certificateId string) (*store.IosCertificate, error) {
 	if _, err := uuid.Parse(certificateId); err != nil {
 		return nil, validation.Errorf("certificateId", "certificate id must be a UUID")
@@ -232,7 +230,7 @@ func (s *IosCredentialsService) selectableCertificate(ctx context.Context, appId
 	if err != nil {
 		return nil, err
 	}
-	if team != "" && team != certificate.TeamID {
+	if team != certificate.TeamID {
 		return nil, validation.Errorf("", "This certificate belongs to team %s, the App Store Connect API key to team %s", certificate.TeamID, team)
 	}
 	return certificate, nil

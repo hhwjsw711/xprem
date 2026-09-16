@@ -542,9 +542,19 @@ func (s *BuildService) UploadLocal(ctx context.Context, appID, identifierID, id,
 	return nil
 }
 
-func shareHash(token string) string {
+// tokenHash hashes a bearer token so its plaintext is never needed in the database.
+func tokenHash(token string) string {
 	sum := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(sum[:])
+}
+
+// randomSecret returns 32 cryptographically random bytes for a link token.
+func randomSecret() ([]byte, error) {
+	secret := make([]byte, 32)
+	if _, err := rand.Read(secret); err != nil {
+		return nil, err
+	}
+	return secret, nil
 }
 
 func (s *BuildService) CreateShare(ctx context.Context, appID, id string, hours int) (types.BuildShare, string, error) {
@@ -558,12 +568,12 @@ func (s *BuildService) CreateShare(ctx context.Context, appID, id string, hours 
 	if hours < 1 || hours > 720 {
 		return types.BuildShare{}, "", validation.Errorf("expiresInHours", "must be between 1 and 720")
 	}
-	secret := make([]byte, 32)
-	if _, err = rand.Read(secret); err != nil {
+	secret, err := randomSecret()
+	if err != nil {
 		return types.BuildShare{}, "", err
 	}
 	token := hex.EncodeToString(secret)
-	share, err := s.repo.CreateShare(ctx, uuid.NewString(), id, shareHash(token), s.now().Add(time.Duration(hours)*time.Hour))
+	share, err := s.repo.CreateShare(ctx, uuid.NewString(), id, tokenHash(token), s.now().Add(time.Duration(hours)*time.Hour))
 	return share, token, err
 }
 
@@ -592,5 +602,5 @@ func (s *BuildService) ResolveShare(ctx context.Context, token string) (*types.B
 	if !buildHash.MatchString(token) {
 		return nil, time.Time{}, &store.ErrResourceNotFound{Resource: "share", Identifier: "link"}
 	}
-	return s.repo.ResolveShare(ctx, shareHash(token))
+	return s.repo.ResolveShare(ctx, tokenHash(token))
 }

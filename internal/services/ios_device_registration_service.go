@@ -2,11 +2,9 @@ package services
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"regexp"
@@ -37,6 +35,11 @@ var (
 
 // ErrIosDeviceInvitationUsed reports a registration link that already registered its iPhone.
 var ErrIosDeviceInvitationUsed = errors.New("ios device invitation already used")
+
+var (
+	errAppleRefusedDevice  = errors.New("apple refused the device")
+	errAppleDeviceDisabled = errors.New("apple device is disabled")
+)
 
 // IosDeviceInvitationStatus is the state of a registration link as shown in the dashboard.
 type IosDeviceInvitationStatus string
@@ -101,21 +104,6 @@ type IosDeviceRegisteredVia struct {
 	RegisteredAt string `json:"registeredAt"`
 }
 
-// iosDeviceTokenHash hashes a bearer token so its plaintext is never needed in the database.
-func iosDeviceTokenHash(token string) string {
-	sum := sha256.Sum256([]byte(token))
-	return hex.EncodeToString(sum[:])
-}
-
-// randomURLSafeString generates 32 cryptographically random bytes encoded for use in links.
-func randomURLSafeString() (string, error) {
-	secret := make([]byte, 32)
-	if _, err := rand.Read(secret); err != nil {
-		return "", err
-	}
-	return base64.RawURLEncoding.EncodeToString(secret), nil
-}
-
 // CreateIosDeviceInvitation creates a registration link and returns its token, which is not stored.
 func (s *IosCredentialsService) CreateIosDeviceInvitation(ctx context.Context, appId string, label string, expiresInHours int) (*IosDeviceInvitation, string, error) {
 	appId, err := s.canonicalAppID(appId)
@@ -139,20 +127,21 @@ func (s *IosCredentialsService) CreateIosDeviceInvitation(ctx context.Context, a
 	if key == nil {
 		return nil, "", validation.Errorf("", "Add an App Store Connect API key first")
 	}
-	token, err := randomURLSafeString()
+	tokenSecret, err := randomSecret()
 	if err != nil {
 		return nil, "", err
 	}
-	challenge, err := randomURLSafeString()
+	challengeSecret, err := randomSecret()
 	if err != nil {
 		return nil, "", err
 	}
+	token := base64.RawURLEncoding.EncodeToString(tokenSecret)
 	actorType, actorId, actorDisplay := auditActorFromContext(ctx)
 	invitation := store.NewIosDeviceInvitation{
 		Id:           uuid.NewString(),
 		AppId:        appId,
-		TokenHash:    iosDeviceTokenHash(token),
-		Challenge:    challenge,
+		TokenHash:    tokenHash(token),
+		Challenge:    base64.RawURLEncoding.EncodeToString(challengeSecret),
 		Label:        label,
 		ExpiresAt:    time.Now().Add(time.Duration(expiresInHours) * time.Hour),
 		ActorType:    actorType,
@@ -356,7 +345,7 @@ func (s *IosCredentialsService) activeIosDeviceInvitation(ctx context.Context, t
 	if !iosDeviceInvitationToken.MatchString(token) {
 		return nil, notFound
 	}
-	invitation, err := s.repo.ResolveIosDeviceInvitation(ctx, iosDeviceTokenHash(token))
+	invitation, err := s.repo.ResolveIosDeviceInvitation(ctx, tokenHash(token))
 	if err != nil {
 		return nil, err
 	}
@@ -391,7 +380,7 @@ func (s *IosCredentialsService) GetPublicIosDeviceRegistration(ctx context.Conte
 	if _, err := uuid.Parse(registrationId); err != nil || !iosDeviceInvitationToken.MatchString(token) {
 		return nil, notFound
 	}
-	registration, err := s.repo.GetIosDeviceRegistration(ctx, iosDeviceTokenHash(token), registrationId)
+	registration, err := s.repo.GetIosDeviceRegistration(ctx, tokenHash(token), registrationId)
 	if err != nil {
 		return nil, err
 	}
@@ -441,6 +430,10 @@ func (s *IosCredentialsService) EnrollIosDevice(ctx context.Context, token strin
 		return "", err
 	}
 	if claimToken == "" {
+		// The link may have been revoked or expired since it was resolved.
+		if _, err := s.activeIosDeviceInvitation(ctx, token); err != nil {
+			return "", err
+		}
 		return "", ErrIosDeviceInvitationUsed
 	}
 	registration := store.IosDeviceRegistration{
@@ -451,17 +444,22 @@ func (s *IosCredentialsService) EnrollIosDevice(ctx context.Context, token strin
 		OSVersion:    attributes.Version,
 		Status:       types.IosDeviceRegistered,
 	}
-	appleDeviceId, err := s.registerAppleDevice(ctx, invitation.AppId, registration.DeviceName, attributes.UDID)
-	if err != nil {
+	appleDeviceId, appleErr := s.registerAppleDevice(ctx, invitation.AppId, registration.DeviceName, attributes.UDID)
+	if appleErr != nil {
 		registration.Status = types.IosDeviceRegistrationFailed
-		message := registrationErrorMessage(err)
+		message := registrationErrorMessage(appleErr)
 		registration.Error = &message
 	} else {
 		registration.AppleDeviceId = &appleDeviceId
 	}
+	// A device Apple already accepted must be recorded even if the tester disconnected.
+	ctx = context.WithoutCancel(ctx)
 	registrationId, err := s.repo.FinishIosDeviceRegistration(ctx, registration, claimToken)
 	if err != nil {
-		if releaseErr := s.repo.ReleaseIosDeviceInvitation(context.WithoutCancel(ctx), invitation.Id, claimToken); releaseErr != nil {
+		if appleErr == nil {
+			log.Printf("ios device registration not recorded: apple device %s registered through invitation %s: %v", appleDeviceId, invitation.Id, err)
+		}
+		if releaseErr := s.repo.ReleaseIosDeviceInvitation(ctx, invitation.Id, claimToken); releaseErr != nil {
 			log.Printf("ios device invitation release failed: %v", releaseErr)
 		}
 		if errors.Is(err, store.ErrIosDeviceInvitationClaimLost) {
@@ -469,8 +467,8 @@ func (s *IosCredentialsService) EnrollIosDevice(ctx context.Context, token strin
 		}
 		return "", err
 	}
-	if registration.Status == types.IosDeviceRegistered && s.onAuditEvent != nil {
-		s.onAuditEvent(ctx, auditlog.Event{
+	if s.onAuditEvent != nil {
+		event := auditlog.Event{
 			ActorType:     auditlog.ActorSystem,
 			ActorID:       "device-registration",
 			ActorDisplay:  "iPhone registration link",
@@ -481,7 +479,12 @@ func (s *IosCredentialsService) EnrollIosDevice(ctx context.Context, token strin
 			AppID:         invitation.AppId,
 			Outcome:       auditlog.OutcomeSuccess,
 			Metadata:      map[string]any{"invitation_id": invitation.Id, "product": registration.Product},
-		})
+		}
+		if appleErr != nil {
+			event.Outcome = auditlog.OutcomeFailure
+			event.Metadata["error"] = appleErr.Error()
+		}
+		s.onAuditEvent(ctx, event)
 	}
 	return registrationId, nil
 }
@@ -490,36 +493,39 @@ func (s *IosCredentialsService) EnrollIosDevice(ctx context.Context, token strin
 func (s *IosCredentialsService) registerAppleDevice(ctx context.Context, appId string, name string, udid string) (string, error) {
 	client, err := s.appStoreConnectClient(ctx, appId)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("app store connect client: %w", err)
 	}
-	appleDeviceId, err := client.FindDevice(ctx, udid)
+	device, err := client.FindDevice(ctx, udid)
 	if err != nil {
-		return "", appStoreConnectError(err)
+		return "", fmt.Errorf("find apple device: %w", err)
 	}
-	if appleDeviceId != "" {
-		return appleDeviceId, nil
-	}
-	appleDeviceId, err = client.RegisterIOSDevice(ctx, name, udid)
-	var apiErr *appstoreconnect.APIError
-	if errors.As(err, &apiErr) && apiErr.Status == http.StatusConflict {
-		if existing, findErr := client.FindDevice(ctx, udid); findErr == nil && existing != "" {
-			return existing, nil
+	if device == nil {
+		appleDeviceId, err := client.RegisterIOSDevice(ctx, name, udid)
+		if err == nil {
+			return appleDeviceId, nil
 		}
-		log.Printf("ios device registration conflict: %s", apiErr.Detail)
-		return "", validation.Errorf("", "Apple refused this iPhone. Contact the app administrator.")
+		var apiErr *appstoreconnect.APIError
+		if !errors.As(err, &apiErr) || apiErr.Status != http.StatusConflict {
+			return "", fmt.Errorf("register apple device: %w", err)
+		}
+		if device, err = client.FindDevice(ctx, udid); err != nil || device == nil {
+			log.Printf("ios device registration conflict: %s", apiErr.Detail)
+			return "", errAppleRefusedDevice
+		}
 	}
-	if err != nil {
-		return "", appStoreConnectError(err)
+	if device.Status == appleDeviceDisabled {
+		return "", errAppleDeviceDisabled
 	}
-	return appleDeviceId, nil
+	return device.ID, nil
 }
 
 // registrationErrorMessage returns a public-safe enrollment error and logs unexpected failures.
 func registrationErrorMessage(err error) string {
-	var valErr *validation.Error
 	switch {
-	case errors.As(err, &valErr):
-		return valErr.Error()
+	case errors.Is(err, errAppleRefusedDevice):
+		return "Apple refused this iPhone. Contact the app administrator."
+	case errors.Is(err, errAppleDeviceDisabled):
+		return "This iPhone is disabled in the Apple team. Ask the app administrator to enable it."
 	case errors.Is(err, appstoreconnect.ErrUnavailable):
 		return "App Store Connect could not be reached. Try again in a few minutes."
 	}

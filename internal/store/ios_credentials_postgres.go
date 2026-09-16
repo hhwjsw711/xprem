@@ -22,7 +22,6 @@ type IosCertificate struct {
 	Type            types.IosCertificateType
 	TeamID          string
 	ExpiresAt       time.Time
-	Source          types.IosCertificateSource
 	CreatedAt       time.Time
 }
 
@@ -66,13 +65,12 @@ func iosCertificateFromRow(row pgdb.GetIosCertificateRow) IosCertificate {
 		Type:            row.CertificateType,
 		TeamID:          row.TeamID,
 		ExpiresAt:       row.ExpiresAt.Time,
-		Source:          row.Source,
 		CreatedAt:       row.CreatedAt.Time,
 	}
 }
 
 // SaveIosCertificate adds the certificate to the pool, or replaces the stored file of the pool row
-// with the same fingerprint, which keeps its source. It returns the id of the pool row.
+// with the same fingerprint. It returns the id of the pool row.
 func (s *PostgresIosCredentialsStore) SaveIosCertificate(ctx context.Context, certificate IosCertificate, seal SealIosCertificateFunc) (string, error) {
 	var certificateId string
 	err := s.engine.WithTx(ctx, func(q *pgdb.Queries) error {
@@ -91,7 +89,6 @@ func (s *PostgresIosCredentialsStore) SaveIosCertificate(ctx context.Context, ce
 			CertificateType:           certificate.Type,
 			TeamID:                    certificate.TeamID,
 			ExpiresAt:                 ToPgTimestamptz(&certificate.ExpiresAt),
-			Source:                    certificate.Source,
 		})
 		if err != nil {
 			return fmt.Errorf("failed to save ios certificate in database: %w", err)
@@ -208,14 +205,30 @@ func (s *PostgresIosCredentialsStore) GetAppStoreConnectApiKey(ctx context.Conte
 	}, nil
 }
 
-// DeleteAppStoreConnectApiKey removes the app team credentials or reports that no key exists.
-func (s *PostgresIosCredentialsStore) DeleteAppStoreConnectApiKey(ctx context.Context, appId string) error {
-	commandTag, err := s.engine.Queries.DeleteAppStoreConnectApiKey(ctx, ToPgUUID(appId))
+// DeleteAppStoreConnectApiKey removes the app team credentials and revokes its pending registration
+// links in one transaction, or reports that no key exists.
+func (s *PostgresIosCredentialsStore) DeleteAppStoreConnectApiKey(ctx context.Context, appId string) ([]RevokedIosDeviceInvitation, error) {
+	var revoked []RevokedIosDeviceInvitation
+	err := s.engine.WithTx(ctx, func(q *pgdb.Queries) error {
+		commandTag, err := q.DeleteAppStoreConnectApiKey(ctx, ToPgUUID(appId))
+		if err != nil {
+			return fmt.Errorf("failed to delete app store connect api key from database: %w", err)
+		}
+		if commandTag.RowsAffected() == 0 {
+			return &ErrResourceNotFound{Resource: "app store connect api key", Identifier: fmt.Sprintf("appId: %s", appId)}
+		}
+		rows, err := q.RevokePendingIosDeviceInvitations(ctx, ToPgUUID(appId))
+		if err != nil {
+			return fmt.Errorf("failed to revoke pending ios device invitations in database: %w", err)
+		}
+		revoked = make([]RevokedIosDeviceInvitation, len(rows))
+		for i, row := range rows {
+			revoked[i] = RevokedIosDeviceInvitation{Id: row.ID.String(), Label: row.Label}
+		}
+		return nil
+	})
 	if err != nil {
-		return fmt.Errorf("failed to delete app store connect api key from database: %w", err)
+		return nil, err
 	}
-	if commandTag.RowsAffected() == 0 {
-		return &ErrResourceNotFound{Resource: "app store connect api key", Identifier: fmt.Sprintf("appId: %s", appId)}
-	}
-	return nil
+	return revoked, nil
 }

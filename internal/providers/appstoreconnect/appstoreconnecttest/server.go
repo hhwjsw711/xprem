@@ -38,11 +38,13 @@ type Server struct {
 	DeviceLimitReached bool
 	// DeviceConflictDetail injects a registration conflict while lookups still return no device.
 	DeviceConflictDetail string
-	Devices              []Device
-	requests             []string
-	certificates         map[string][]byte
-	certificatesCreated  int
-	publicKey            *ecdsa.PublicKey
+	// ConflictThenAppear makes device registration answer 409 while adding the device to the team.
+	ConflictThenAppear  bool
+	Devices             []Device
+	requests            []string
+	certificates        map[string][]byte
+	certificatesCreated int
+	publicKey           *ecdsa.PublicKey
 }
 
 // Device is a registered device with the attributes Apple lists.
@@ -220,6 +222,10 @@ func (s *Server) createDevice(w http.ResponseWriter, r *http.Request) {
 		AddedDate:   time.Now().UTC().Format("2006-01-02T15:04:05.000-0700"),
 	}
 	s.Devices = append(s.Devices, device)
+	if s.ConflictThenAppear {
+		writeError(w, http.StatusConflict, "ENTITY_ERROR.ATTRIBUTE.INVALID", "A device with number '"+attributes.UDID+"' already exists on this team.")
+		return
+	}
 	writeJSON(w, http.StatusCreated, map[string]any{"data": map[string]any{"type": "devices", "id": device.ID, "attributes": attributes}})
 }
 

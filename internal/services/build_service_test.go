@@ -805,7 +805,7 @@ func TestBuildSharesRequireReadyAPK(t *testing.T) {
 	require.Len(t, token, 64)
 	require.Equal(t, f.now.Add(48*time.Hour), share.ExpiresAt)
 	require.NotContains(t, f.repo.shares, token, "only the hash is stored")
-	require.Contains(t, f.repo.shares, shareHash(token))
+	require.Contains(t, f.repo.shares, tokenHash(token))
 
 	resolved, expiry, err := f.service.ResolveShare(ctx, token)
 	require.NoError(t, err)

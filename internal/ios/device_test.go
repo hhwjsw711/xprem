@@ -129,6 +129,7 @@ func TestDeviceResponseSignatures(t *testing.T) {
 			"truncated":        signed[:len(signed)-5],
 			"trailing data":    append(append([]byte(nil), signed...), 0),
 			"unsigned":         iostest.SignedData(content, indefinite),
+			"second signer":    withSecondSigner(t, identity, content),
 		} {
 			_, err := verifier.Parse(response, "challenge")
 			require.ErrorIs(t, err, errInvalidDeviceResponse, name)
@@ -150,6 +151,74 @@ func TestDeviceResponseSignatures(t *testing.T) {
 	}
 	_, err = verifier.Parse(authority.SignResponse(content, false), "challenge")
 	require.ErrorIs(t, err, errInvalidDeviceResponse, "the CA itself is not a device")
+}
+
+// withSecondSigner adds a SignerInfo from an unrelated self-signed certificate next to identity's.
+func withSecondSigner(t *testing.T, identity iostest.Identity, content []byte) []byte {
+	t.Helper()
+	stranger := iostest.NewIssuedIdentity(nil, &x509.Certificate{
+		Subject: pkix.Name{CommonName: "stranger"}, NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour),
+		KeyUsage: x509.KeyUsageDigitalSignature,
+	})
+	signed, err := pkcs7.NewSignedData(content)
+	require.NoError(t, err)
+	signed.SetDigestAlgorithm(pkcs7.OIDDigestAlgorithmSHA256)
+	require.NoError(t, signed.AddSigner(identity.Certificate, identity.Key, pkcs7.SignerInfoConfig{}))
+	require.NoError(t, signed.AddSigner(stranger.Certificate, stranger.Key, pkcs7.SignerInfoConfig{}))
+	response, err := signed.Finish()
+	require.NoError(t, err)
+	return response
+}
+
+// TestDeviceResponseAppleChain accepts the expired RSA-1024, SHA-1 chain that real iPhones present.
+func TestDeviceResponseAppleChain(t *testing.T) {
+	authorityTemplate := func(serial int64) *x509.Certificate {
+		return &x509.Certificate{
+			SerialNumber: big.NewInt(serial), Subject: pkix.Name{CommonName: "Apple iPhone Device CA"},
+			NotBefore: time.Date(2007, 4, 16, 0, 0, 0, 0, time.UTC), NotAfter: time.Date(2014, 4, 16, 0, 0, 0, 0, time.UTC),
+			IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign,
+		}
+	}
+	authorityKey, authority := sha1Certificate(t, authorityTemplate(1), nil, nil)
+	deviceKey, device := sha1Certificate(t, &x509.Certificate{
+		SerialNumber: big.NewInt(2), Subject: pkix.Name{CommonName: "iPhone"},
+		NotBefore: time.Date(2013, 1, 1, 0, 0, 0, 0, time.UTC), NotAfter: time.Date(2014, 1, 1, 0, 0, 0, 0, time.UTC),
+		KeyUsage: x509.KeyUsageDigitalSignature,
+	}, authority, authorityKey)
+	content, err := plist.Marshal(map[string]string{"UDID": "apple-device", "CHALLENGE": "challenge"}, plist.XMLFormat)
+	require.NoError(t, err)
+	signed, err := pkcs7.NewSignedData(content)
+	require.NoError(t, err)
+	signed.SetDigestAlgorithm(pkcs7.OIDDigestAlgorithmSHA1)
+	require.NoError(t, signed.AddSigner(device, deviceKey, pkcs7.SignerInfoConfig{}))
+	response, err := signed.Finish()
+	require.NoError(t, err)
+
+	attributes, err := NewDeviceResponseVerifier(authority).Parse(response, "challenge")
+	require.NoError(t, err)
+	assert.Equal(t, "apple-device", attributes.UDID)
+
+	_, otherAuthority := sha1Certificate(t, authorityTemplate(3), nil, nil)
+	_, err = NewDeviceResponseVerifier(otherAuthority).Parse(response, "challenge")
+	require.ErrorIs(t, err, errInvalidDeviceResponse, "same CA name with a different SHA-1 key")
+}
+
+// sha1Certificate issues template with a fresh RSA-1024 key and a sha1WithRSAEncryption
+// signature from signingKey, or self-signs it when parent is nil.
+func sha1Certificate(t *testing.T, template, parent *x509.Certificate, signingKey *rsa.PrivateKey) (*rsa.PrivateKey, *x509.Certificate) {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 1024)
+	require.NoError(t, err)
+	if parent == nil {
+		parent, signingKey = template, key
+	}
+	template.SignatureAlgorithm = x509.SHA1WithRSA
+	der, err := x509.CreateCertificate(rand.Reader, template, parent, &key.PublicKey, signingKey)
+	require.NoError(t, err)
+	certificate, err := x509.ParseCertificate(der)
+	require.NoError(t, err)
+	require.Equal(t, x509.SHA1WithRSA, certificate.SignatureAlgorithm)
+	return key, certificate
 }
 
 // TestAppleDeviceTrustAnchor checks that the embedded pin is Apple's documented device issuer.

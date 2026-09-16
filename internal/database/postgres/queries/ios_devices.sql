@@ -18,6 +18,11 @@ UPDATE ios_device_invitations SET revoked_at = COALESCE(revoked_at, now())
 WHERE app_id = $1 AND id = $2
 RETURNING label;
 
+-- name: RevokePendingIosDeviceInvitations :many
+UPDATE ios_device_invitations SET revoked_at = now()
+WHERE app_id = $1 AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at > now()
+RETURNING id, label;
+
 -- name: ResolveIosDeviceInvitation :one
 SELECT i.id, i.app_id, i.challenge, i.label, i.expires_at, (i.consumed_at IS NOT NULL)::bool AS consumed, a.name AS app_name
 FROM ios_device_invitations i
@@ -32,7 +37,7 @@ WHERE id = $1 AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at > no
 
 -- name: ConsumeIosDeviceInvitation :execrows
 UPDATE ios_device_invitations SET consumed_at = now(), registration_id = $2, claimed_at = NULL, claim_token = NULL
-WHERE id = $1 AND claim_token = $3 AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at > now();
+WHERE id = $1 AND claim_token = $3 AND consumed_at IS NULL;
 
 -- name: ReleaseIosDeviceInvitation :execrows
 UPDATE ios_device_invitations SET claimed_at = NULL, claim_token = NULL

@@ -2,8 +2,8 @@
 -- DO UPDATE instead of DO NOTHING so RETURNING yields the id of an existing row.
 INSERT INTO ios_certificates (
     id, sealed_certificate, sealed_certificate_password, common_name, serial_number,
-    fingerprint_sha1, certificate_type, team_id, expires_at, source
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+    fingerprint_sha1, certificate_type, team_id, expires_at
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 ON CONFLICT (fingerprint_sha1) DO UPDATE SET fingerprint_sha1 = EXCLUDED.fingerprint_sha1
 RETURNING id;
 
@@ -14,13 +14,13 @@ WHERE id = $1;
 
 -- name: GetIosCertificate :one
 SELECT id, common_name, serial_number, fingerprint_sha1, certificate_type, team_id,
-       expires_at, source, created_at
+       expires_at, created_at
 FROM ios_certificates
 WHERE id = $1;
 
 -- name: ListIosCertificates :many
 SELECT id, common_name, serial_number, fingerprint_sha1, certificate_type, team_id,
-       expires_at, source, created_at
+       expires_at, created_at
 FROM ios_certificates
 ORDER BY created_at DESC, id;
 

@@ -210,7 +210,6 @@ export type IosCertificate = {
   type: 'distribution' | 'development';
   teamId: string;
   expiresAt: string;
-  source: 'generated' | 'uploaded';
 };
 
 // `certificateMissing`: the selected certificate was deleted, so `certificate` is null.
