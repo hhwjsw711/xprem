@@ -348,17 +348,17 @@ type IosDeviceInvitation struct {
 	AppID                 pgtype.UUID        `json:"app_id"`
 	TokenHash             string             `json:"token_hash"`
 	Challenge             string             `json:"challenge"`
+	ClaimToken            pgtype.UUID        `json:"claim_token"`
 	Label                 string             `json:"label"`
 	ExpiresAt             pgtype.Timestamptz `json:"expires_at"`
+	ClaimedAt             pgtype.Timestamptz `json:"claimed_at"`
+	ConsumedAt            pgtype.Timestamptz `json:"consumed_at"`
 	RevokedAt             pgtype.Timestamptz `json:"revoked_at"`
 	CreatedByActorType    auditlog.ActorType `json:"created_by_actor_type"`
 	CreatedByActorID      string             `json:"created_by_actor_id"`
 	CreatedByActorDisplay string             `json:"created_by_actor_display"`
 	CreatedAt             pgtype.Timestamptz `json:"created_at"`
-	ClaimedAt             pgtype.Timestamptz `json:"claimed_at"`
-	ConsumedAt            pgtype.Timestamptz `json:"consumed_at"`
 	RegistrationID        pgtype.UUID        `json:"registration_id"`
-	ClaimToken            pgtype.UUID        `json:"claim_token"`
 }
 
 type IosDeviceRegistration struct {
