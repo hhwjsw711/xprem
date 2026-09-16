@@ -26,3 +26,19 @@ You can expect:
 Given the nature of this project (an OTA update server delivering
 code to end-user devices), reports affecting update integrity,
 authentication, or code signing are treated with the highest priority.
+
+## Verifying releases
+
+Every Docker image and Helm chart is signed with [cosign](https://github.com/sigstore/cosign)
+by the release workflow of this repository. Signatures are keyless: they are tied
+to the GitHub Actions identity of the workflow and recorded in the public Sigstore
+transparency log.
+
+```
+cosign verify ghcr.io/mercuretechnologies/xprem:vX.Y.Z \
+  --certificate-identity-regexp "https://github.com/mercuretechnologies/xprem/" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+The same command verifies the Helm chart with `ghcr.io/mercuretechnologies/charts/xprem:X.Y.Z`
+as the reference.

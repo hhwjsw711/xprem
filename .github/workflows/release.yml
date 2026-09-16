@@ -16,6 +16,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -34,6 +36,7 @@ jobs:
       # xprem is the canonical image. The expo-open-ota path is kept in sync so
       # deployments made under the old project name keep pulling.
       - name: Build and push multi-platform Docker image
+        id: build
         run: |
           IMAGE_TAG="${GITHUB_REF#refs/tags/}"
           REPO="ghcr.io/${{ github.repository_owner }}/xprem"
@@ -45,7 +48,9 @@ jobs:
             --build-arg VERSION="$IMAGE_TAG" \
             -t "$REPO:$IMAGE_TAG" \
             -t "$DEPRECATED_REPO:$IMAGE_TAG" \
+            --metadata-file /tmp/meta.json \
             --push .
+          echo "digest=$(jq -r '."containerimage.digest"' /tmp/meta.json)" >> "$GITHUB_OUTPUT"
 
   helm:
     runs-on: ubuntu-latest
@@ -53,6 +58,9 @@ jobs:
     permissions:
       contents: read
       packages: write
+    outputs:
+      xprem_digest: ${{ steps.push.outputs.xprem_digest }}
+      expo_open_ota_digest: ${{ steps.push.outputs.expo_open_ota_digest }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -79,12 +87,14 @@ jobs:
         run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
 
       - name: Push Helm chart to GHCR
+        id: push
         run: |
           IMAGE_TAG="${GITHUB_REF#refs/tags/}"
           CHART_VERSION="${IMAGE_TAG#v}"
           OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           for CHART in xprem expo-open-ota; do
-            helm push "./charts/${CHART}-${CHART_VERSION}.tgz" "oci://ghcr.io/${OWNER}/charts"
+            DIGEST=$(helm push "./charts/${CHART}-${CHART_VERSION}.tgz" "oci://ghcr.io/${OWNER}/charts" 2>&1 | tee /dev/stderr | sed -n 's/^Digest: //p')
+            echo "${CHART//-/_}_digest=$DIGEST" >> "$GITHUB_OUTPUT"
           done
 
       # Only the canonical chart ships as a release asset; the deprecated copy
@@ -112,27 +122,30 @@ jobs:
       id-token: write
     steps:
       - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
-      - uses: imjasonh/setup-crane@feee3b6bb0d4c68370f256a4502498c9227e5c6b # v0.7
 
       - name: Log in to GitHub Container Registry
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | crane auth login ghcr.io -u "${{ github.actor }}" --password-stdin
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
       # GHCR has no OCI referrers API, so signatures use the legacy .sig tag layout.
       - name: Sign Docker images and Helm charts
         env:
-          REF_NAME: ${{ github.ref_name }}
+          IMAGE_DIGEST: ${{ needs.docker.outputs.digest }}
+          XPREM_CHART_DIGEST: ${{ needs.helm.outputs.xprem_digest }}
+          EXPO_OPEN_OTA_CHART_DIGEST: ${{ needs.helm.outputs.expo_open_ota_digest }}
           WORKFLOW_REF: ${{ github.workflow_ref }}
         run: |
           OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-          CHART_VERSION="${REF_NAME#v}"
-          REFS=""
-          for IMAGE in "$OWNER/xprem:$REF_NAME" \
-                       "$OWNER/expo-open-ota:$REF_NAME" \
-                       "$OWNER/charts/xprem:$CHART_VERSION" \
-                       "$OWNER/charts/expo-open-ota:$CHART_VERSION"; do
-            REFS="$REFS ghcr.io/${IMAGE%%:*}@$(crane digest "ghcr.io/$IMAGE")"
+          for DIGEST in "$IMAGE_DIGEST" "$XPREM_CHART_DIGEST" "$EXPO_OPEN_OTA_CHART_DIGEST"; do
+            if [[ ! "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+              echo "::error::Missing or malformed digest: '$DIGEST'"
+              exit 1
+            fi
           done
-          cosign sign --yes --new-bundle-format=false $REFS
+          REFS="ghcr.io/$OWNER/xprem@$IMAGE_DIGEST \
+                ghcr.io/$OWNER/expo-open-ota@$IMAGE_DIGEST \
+                ghcr.io/$OWNER/charts/xprem@$XPREM_CHART_DIGEST \
+                ghcr.io/$OWNER/charts/expo-open-ota@$EXPO_OPEN_OTA_CHART_DIGEST"
+          cosign sign --yes --new-bundle-format=false --use-signing-config=false $REFS
 
           for REF in $REFS; do
             cosign verify "$REF" \
