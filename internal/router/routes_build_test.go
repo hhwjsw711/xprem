@@ -473,6 +473,7 @@ func TestBuildRegistryRouteMethodsAndPublicPaths(t *testing.T) {
 	container := &AppContainer{AppRepo: buildAppRepo{}, CliAuthService: services.NewCliAuthService(acceptingCliRepo{}), ApiKeyAccessService: apikeyrestrictions.NewApiKeyAccessService(access), AppIdentifierRepo: &buildIdentifierRepo{platform: types.PlatformAndroid}, BuildHandler: handlers.NewBuildHandler(nil, nil, nil), BuildRegistryHandler: registry}
 	router := mux.NewRouter()
 	registerBuildRoutes(router, container)
+	registerLinkRoutes(router, container)
 	for _, tc := range []struct {
 		method, target string
 		status         int
