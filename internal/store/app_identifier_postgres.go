@@ -148,6 +148,15 @@ func (s *PostgresAppIdentifierStore) DeleteAppIdentifier(ctx context.Context, ap
 		if err != nil {
 			return fmt.Errorf("failed to lock app identifier: %w", err)
 		}
+		keyNames, err := q.ListApiKeysOnlyRestrictedToAppIdentifier(ctx, pgdb.ListApiKeysOnlyRestrictedToAppIdentifierParams{
+			AppID: ToPgUUID(appId), ID: ToPgUUID(identifierId),
+		})
+		if err != nil {
+			return fmt.Errorf("failed to list the API keys restricted to the app identifier: %w", err)
+		}
+		if len(keyNames) > 0 {
+			return &ErrAppIdentifierRestrictsApiKeys{KeyNames: keyNames}
+		}
 		commandTag, err := q.DeleteAppIdentifierByID(ctx, pgdb.DeleteAppIdentifierByIDParams{
 			AppID: ToPgUUID(appId),
 			ID:    ToPgUUID(identifierId),

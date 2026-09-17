@@ -23,6 +23,7 @@ import (
 	"xprem/internal/database/postgres"
 	"xprem/internal/database/postgres/pgdb"
 	"xprem/internal/services"
+	"xprem/internal/store"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -427,4 +428,32 @@ func TestEnvironmentRulesAgainstPostgres(t *testing.T) {
 	require.NoError(t, service.SetAccess(ctx, appID, apiKeyID, nil, nil, nil, nil, []EnvironmentRule{{Pattern: "production"}}))
 	require.NoError(t, service.AuthorizeEnvironment(ctx, request("production")))
 	require.ErrorIs(t, service.AuthorizeEnvironment(ctx, request("staging")), services.ErrCliAccessDenied, "rules are replaced, not merged")
+}
+
+func TestDeletingAnIdentifierNeverLeavesALiveKeyUnrestricted(t *testing.T) {
+	accessStore, pool := setupAccessStore(t)
+	ctx := context.Background()
+	identifiers := store.NewPostgresAppIdentifierStore(accessStore.engine)
+	appID := insertTestApp(t, pool)
+	staging := insertTestIdentifier(t, pool, appID, "android")
+	production := insertTestIdentifier(t, pool, appID, "android")
+	create := []BuildAction{BuildActionCreate}
+
+	onlyStaging := insertTestApiKey(t, pool, appID, "ci-staging")
+	require.NoError(t, accessStore.SetAccess(ctx, appID, ApiKeyAccess{ApiKeyID: onlyStaging, BuildRules: []BuildRule{{AppIdentifierID: staging, Actions: create}}}))
+	both := insertTestApiKey(t, pool, appID, "ci-all")
+	require.NoError(t, accessStore.SetAccess(ctx, appID, ApiKeyAccess{ApiKeyID: both, BuildRules: []BuildRule{
+		{AppIdentifierID: staging, Actions: create}, {AppIdentifierID: production, Actions: create},
+	}}))
+
+	var refused *store.ErrAppIdentifierRestrictsApiKeys
+	require.ErrorAs(t, identifiers.DeleteAppIdentifier(ctx, appID, staging), &refused)
+	require.Equal(t, []string{"ci-staging"}, refused.KeyNames)
+	service := serviceWith(accessStore, true)
+	denied := BuildRequest{APIKeyContext: APIKeyContext{AppID: appID, APIKeyID: onlyStaging}, AppIdentifierID: production, Action: BuildActionCreate}
+	require.ErrorIs(t, service.AuthorizeBuild(ctx, denied), services.ErrCliAccessDenied)
+
+	_, err := pool.Exec(ctx, "UPDATE api_keys SET revoked_at = now() WHERE id = $1", onlyStaging)
+	require.NoError(t, err)
+	require.NoError(t, identifiers.DeleteAppIdentifier(ctx, appID, staging), "a revoked key and a key with another rule do not hold the identifier")
 }
