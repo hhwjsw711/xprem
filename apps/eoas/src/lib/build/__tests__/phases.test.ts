@@ -31,7 +31,7 @@ it('uses EAS markers, phase IDs, results and durations, including buffered prepa
     await log.runBuildPhase(BuildPhase.PREBUILD, async phase => {
       phase.markSkipped();
     });
-    await log.runBuildPhase(BuildPhase.RUN_EXPO_DOCTOR, async phase => {
+    await log.runBuildPhase(BuildPhase.POST_INSTALL_HOOK, async phase => {
       phase.warn('warning');
     });
     expect(events[0]).toMatchObject({ phase: 'PREPARE_PROJECT', marker: 'START_PHASE' });

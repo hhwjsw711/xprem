@@ -6,6 +6,7 @@ import path from 'path';
 
 import { assertSceneLifecycle } from './sceneLifecycle';
 import { InstalledSigning, IosCredentials, installSigning } from './signing';
+import { runPostInstallHook } from '../hooks';
 import { macosSdkPath, resolveIosTools } from './tools';
 import { selectXcode } from './xcode';
 import { IosProfile } from '../../buildConfig/types';
@@ -140,6 +141,7 @@ function iosBuild(build: IosBuild): NativeBuild {
             secrets
           );
         });
+        await runPostInstallHook(build, working, buildLog, secrets);
         await buildLog.runBuildPhase(
           BuildPhase.RUN_XCODEBUILD,
           async phaseLog => {

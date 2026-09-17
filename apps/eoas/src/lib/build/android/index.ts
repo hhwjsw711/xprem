@@ -4,6 +4,7 @@ import fs from 'fs-extra';
 import path from 'path';
 
 import { logGradleProfile } from './gradleProfile';
+import { runPostInstallHook } from '../hooks';
 import { AndroidToolsOptions, configureAndroidSdk, resolveAndroidTools } from './tools';
 import { AndroidProfile } from '../../buildConfig/types';
 import Log from '../../log';
@@ -110,6 +111,7 @@ function androidBuild(build: AndroidBuild): NativeBuild {
       return { ...expo, android: { ...expo.android, package: applicationId, versionCode } };
     },
     compile: async ({ working, temporary, buildNumber, buildLog, secrets }) => {
+      await runPostInstallHook(build, working, buildLog, secrets);
       const signing = await buildLog.runBuildPhase(
         BuildPhase.PREPARE_CREDENTIALS,
         async () => {
