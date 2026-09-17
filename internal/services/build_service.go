@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+	"xprem/config"
 	"xprem/internal/bucket"
 	"xprem/internal/store"
 	"xprem/internal/types"
@@ -58,15 +59,16 @@ func NewBuildService(repo BuildRepository, identifiers AppIdentifierRepository, 
 
 // BuildStartMetadata is what the CLI knows before compiling.
 type BuildStartMetadata struct {
-	Profile     string    `json:"profile"`
-	Mode        string    `json:"mode,omitempty"`
-	Environment string    `json:"environment,omitempty"`
-	Channel     string    `json:"channel,omitempty"`
-	CLIVersion  string    `json:"cliVersion"`
-	GitCommit   string    `json:"gitCommit,omitempty"`
-	GitMessage  string    `json:"gitMessage,omitempty"`
-	GitDirty    bool      `json:"gitDirty,omitempty"`
-	StartedAt   time.Time `json:"startedAt"`
+	Profile      string                `json:"profile"`
+	Mode         string                `json:"mode,omitempty"`
+	Distribution types.IosDistribution `json:"distribution,omitempty"`
+	Environment  string                `json:"environment,omitempty"`
+	Channel      string                `json:"channel,omitempty"`
+	CLIVersion   string                `json:"cliVersion"`
+	GitCommit    string                `json:"gitCommit,omitempty"`
+	GitMessage   string                `json:"gitMessage,omitempty"`
+	GitDirty     bool                  `json:"gitDirty,omitempty"`
+	StartedAt    time.Time             `json:"startedAt"`
 }
 type BuildStartInput struct {
 	ArtifactType types.BuildArtifactType `json:"artifactType"`
@@ -113,6 +115,15 @@ func (s *BuildService) validateStart(platform types.Platform, artifactType types
 	if m.Mode != "" && m.Mode != "debug" && m.Mode != "release" {
 		return validation.Errorf("metadata.mode", "expected debug or release")
 	}
+	switch m.Distribution {
+	case "":
+	case types.IosDistributionAppStore, types.IosDistributionAdHoc:
+		if platform != types.PlatformIOS {
+			return validation.Errorf("metadata.distribution", "only iOS builds have a distribution")
+		}
+	default:
+		return validation.Errorf("metadata.distribution", "expected %q or %q", types.IosDistributionAppStore, types.IosDistributionAdHoc)
+	}
 	for _, v := range []string{m.Profile, m.Environment, m.Channel, m.CLIVersion, m.GitCommit} {
 		if len(v) > 255 {
 			return validation.Errorf("metadata", "field exceeds 255 bytes")
@@ -138,7 +149,7 @@ func (s *BuildService) validateFinish(startedAt time.Time, finishedAt *time.Time
 
 func (s *BuildService) validateRegister(platform types.Platform, input *RegisterBuildInput) error {
 	m := &input.Metadata
-	start := BuildStartMetadata{Profile: m.Profile, Mode: m.Mode, Environment: m.Environment, Channel: m.Channel, CLIVersion: m.CLIVersion, GitCommit: m.GitCommit, GitMessage: m.GitMessage, GitDirty: m.GitDirty, StartedAt: m.StartedAt}
+	start := BuildStartMetadata{Profile: m.Profile, Mode: m.Mode, Distribution: m.Distribution, Environment: m.Environment, Channel: m.Channel, CLIVersion: m.CLIVersion, GitCommit: m.GitCommit, GitMessage: m.GitMessage, GitDirty: m.GitDirty, StartedAt: m.StartedAt}
 	if err := s.validateStart(platform, input.ArtifactType, &start); err != nil {
 		return err
 	}
@@ -169,7 +180,7 @@ func (s *BuildService) validateRegister(platform types.Platform, input *Register
 
 func sameInitialInputs(a, b types.BuildRecord) bool {
 	x, y := a.Metadata, b.Metadata
-	return a.AppIdentifierID == b.AppIdentifierID && a.ArtifactType == b.ArtifactType && x.Profile == y.Profile && x.Mode == y.Mode && x.Environment == y.Environment && x.Channel == y.Channel && x.CLIVersion == y.CLIVersion && x.GitCommit == y.GitCommit && x.GitMessage == y.GitMessage && x.GitDirty == y.GitDirty && x.StartedAt.Equal(y.StartedAt)
+	return a.AppIdentifierID == b.AppIdentifierID && a.ArtifactType == b.ArtifactType && x.Profile == y.Profile && x.Mode == y.Mode && x.Distribution == y.Distribution && x.Environment == y.Environment && x.Channel == y.Channel && x.CLIVersion == y.CLIVersion && x.GitCommit == y.GitCommit && x.GitMessage == y.GitMessage && x.GitDirty == y.GitDirty && x.StartedAt.Equal(y.StartedAt)
 }
 
 func sameArtifact(a, b types.BuildRecord) bool {
@@ -203,12 +214,7 @@ func (s *BuildService) newRecord(ctx context.Context, appID, identifierID, id st
 	if ref == nil {
 		return nil, &store.ErrResourceNotFound{Resource: "app identifier", Identifier: identifierID}
 	}
-	// Keep rollout support separate from the platform-specific validation rules.
-	switch ref.Platform {
-	case types.PlatformAndroid:
-	case types.PlatformIOS:
-		return nil, validation.Errorf("platform", "iOS build artifacts are not supported yet")
-	default:
+	if ref.Platform != types.PlatformAndroid && ref.Platform != types.PlatformIOS {
 		return nil, validation.Errorf("platform", "unsupported build platform %q", ref.Platform)
 	}
 	actorType, actorID, actorDisplay := auditActorFromContext(ctx)
@@ -231,7 +237,7 @@ func (s *BuildService) Start(ctx context.Context, appID, identifierID, id string
 	}
 	m := input.Metadata
 	record.Status = types.BuildStatusBuilding
-	record.Metadata = types.BuildMetadata{Profile: m.Profile, Mode: m.Mode, Environment: m.Environment, Channel: m.Channel, CLIVersion: m.CLIVersion, GitCommit: m.GitCommit, GitMessage: m.GitMessage, GitDirty: m.GitDirty, StartedAt: m.StartedAt}
+	record.Metadata = types.BuildMetadata{Profile: m.Profile, Mode: m.Mode, Distribution: m.Distribution, Environment: m.Environment, Channel: m.Channel, CLIVersion: m.CLIVersion, GitCommit: m.GitCommit, GitMessage: m.GitMessage, GitDirty: m.GitDirty, StartedAt: m.StartedAt}
 	existing, _, err := s.repo.Create(ctx, *record)
 	if err != nil {
 		return nil, err
@@ -562,8 +568,11 @@ func (s *BuildService) CreateShare(ctx context.Context, appID, id string, hours 
 	if err != nil {
 		return types.BuildShare{}, "", err
 	}
-	if b.Status != types.BuildStatusReady || b.ArtifactType != "apk" {
-		return types.BuildShare{}, "", validation.Errorf("build", "only ready APK builds can be shared")
+	if b.Status != types.BuildStatusReady || !installableFromLink(*b) {
+		return types.BuildShare{}, "", validation.Errorf("build", "only ready APK and iOS Ad Hoc builds can be shared")
+	}
+	if b.Platform == types.PlatformIOS && !strings.HasPrefix(config.BaseURL(), "https://") {
+		return types.BuildShare{}, "", validation.Errorf("build", "iPhones only install from an HTTPS server: set BASE_URL to the https address of this server")
 	}
 	if hours < 1 || hours > 720 {
 		return types.BuildShare{}, "", validation.Errorf("expiresInHours", "must be between 1 and 720")
@@ -575,6 +584,12 @@ func (s *BuildService) CreateShare(ctx context.Context, appID, id string, hours 
 	token := hex.EncodeToString(secret)
 	share, err := s.repo.CreateShare(ctx, uuid.NewString(), id, tokenHash(token), s.now().Add(time.Duration(hours)*time.Hour))
 	return share, token, err
+}
+
+// installableFromLink reports whether a phone can install the artifact directly: store bundles cannot.
+func installableFromLink(b types.BuildRecord) bool {
+	return b.ArtifactType == types.BuildArtifactAPK ||
+		(b.ArtifactType == types.BuildArtifactIPA && b.Metadata.Distribution == types.IosDistributionAdHoc)
 }
 
 func (s *BuildService) ListShares(ctx context.Context, appID, id string) ([]types.BuildShare, error) {

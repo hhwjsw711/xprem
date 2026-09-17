@@ -41,6 +41,12 @@ type SealedAppStoreConnectApiKey struct {
 	UpdatedAt        time.Time
 }
 
+// SealedIosCertificateFile is the AES-GCM sealed PKCS#12 file of a pool certificate and its sealed password.
+type SealedIosCertificateFile struct {
+	SealedCertificate string
+	SealedPassword    string
+}
+
 // SealIosCertificateFunc seals the PKCS#12 file and its password for the pool row certificateId.
 type SealIosCertificateFunc func(certificateId string) (sealedCertificate string, sealedPassword string, err error)
 
@@ -127,6 +133,18 @@ func (s *PostgresIosCredentialsStore) GetIosCertificate(ctx context.Context, cer
 	}
 	certificate := iosCertificateFromRow(row)
 	return &certificate, nil
+}
+
+// GetIosCertificateFile returns (nil, nil) when the pool has no such certificate.
+func (s *PostgresIosCredentialsStore) GetIosCertificateFile(ctx context.Context, certificateId string) (*SealedIosCertificateFile, error) {
+	row, err := s.engine.Queries.GetIosCertificateFile(ctx, ToPgUUID(certificateId))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to retrieve ios certificate file from database: %w", err)
+	}
+	return &SealedIosCertificateFile{SealedCertificate: row.SealedCertificate, SealedPassword: row.SealedCertificatePassword}, nil
 }
 
 // ListIosCertificates returns the whole pool, newest first.

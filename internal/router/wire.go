@@ -402,7 +402,7 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 		CredentialsHandler:          dashhandlers.NewCredentialsHandler(credentialsService),
 		IosCredentialsHandler:       dashhandlers.NewIosCredentialsHandler(iosCredentialsService),
 		AppIdentifierRepo:           appIdentifierRepo,
-		BuildHandler:                handlers.NewBuildHandler(environmentService, credentialsService, appIdentifierService),
+		BuildHandler:                handlers.NewBuildHandler(environmentService, credentialsService, iosCredentialsService, appIdentifierService),
 		BuildRegistryHandler:        handlers.NewBuildRegistryHandler(buildService),
 		EnvironmentsHandler:         dashhandlers.NewEnvironmentsHandler(environmentService),
 		ExpoProtocolHandler:         handlers.NewExpoProtocolHandler(expoProtocolService),

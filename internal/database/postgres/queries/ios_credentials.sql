@@ -18,6 +18,11 @@ SELECT id, common_name, serial_number, fingerprint_sha1, certificate_type, team_
 FROM ios_certificates
 WHERE id = $1;
 
+-- name: GetIosCertificateFile :one
+SELECT sealed_certificate, sealed_certificate_password
+FROM ios_certificates
+WHERE id = $1;
+
 -- name: ListIosCertificates :many
 SELECT id, common_name, serial_number, fingerprint_sha1, certificate_type, team_id,
        expires_at, created_at

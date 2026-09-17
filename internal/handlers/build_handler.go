@@ -4,21 +4,24 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"xprem/internal/providers/appstoreconnect"
 	"xprem/internal/services"
 	"xprem/internal/store"
+	"xprem/internal/types"
 	"xprem/internal/validation"
 
 	"github.com/gorilla/mux"
 )
 
 type BuildHandler struct {
-	environments *services.EnvironmentService
-	credentials  *services.CredentialsService
-	identifiers  *services.AppIdentifierService
+	environments   *services.EnvironmentService
+	credentials    *services.CredentialsService
+	iosCredentials *services.IosCredentialsService
+	identifiers    *services.AppIdentifierService
 }
 
-func NewBuildHandler(environments *services.EnvironmentService, credentials *services.CredentialsService, identifiers *services.AppIdentifierService) *BuildHandler {
-	return &BuildHandler{environments: environments, credentials: credentials, identifiers: identifiers}
+func NewBuildHandler(environments *services.EnvironmentService, credentials *services.CredentialsService, iosCredentials *services.IosCredentialsService, identifiers *services.AppIdentifierService) *BuildHandler {
+	return &BuildHandler{environments: environments, credentials: credentials, iosCredentials: iosCredentials, identifiers: identifiers}
 }
 
 func RenderBuildInputError(w http.ResponseWriter, err error) {
@@ -32,6 +35,8 @@ func RenderBuildInputError(w http.ResponseWriter, err error) {
 		RenderError(w, http.StatusNotFound, missing.Error())
 	case errors.Is(err, store.ErrNotSupportedInStatelessMode):
 		RenderError(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, appstoreconnect.ErrUnavailable):
+		RenderError(w, http.StatusBadGateway, "App Store Connect could not be reached. Try again in a few minutes.")
 	default:
 		RenderError(w, http.StatusInternalServerError, "Could not retrieve build inputs.")
 	}
@@ -96,6 +101,29 @@ func (h *BuildHandler) AndroidCredentials(w http.ResponseWriter, r *http.Request
 		return
 	}
 	renderBuildSecrets(w, AndroidBuildCredentials{Keystore: exported.Keystore, KeystorePassword: exported.KeystorePassword, KeyAlias: exported.KeyAlias, KeyPassword: exported.KeyPassword})
+}
+
+// IosBuildCredentials is the allowlist of what signs one iOS build; encoding/json represents the files as base64.
+type IosBuildCredentials struct {
+	CertificateP12      []byte `json:"certificateP12"`
+	CertificatePassword string `json:"certificatePassword"`
+	ProvisioningProfile []byte `json:"provisioningProfile"`
+	TeamID              string `json:"teamId"`
+}
+
+func (h *BuildHandler) IosCredentials(w http.ResponseWriter, r *http.Request) {
+	identifierID := services.BuildIdentifierFromContext(r.Context())
+	if identifierID == "" {
+		RenderCliAuthError(w, services.ErrUnauthorized)
+		return
+	}
+	distribution := types.IosDistribution(r.URL.Query().Get("distribution"))
+	prepared, err := h.iosCredentials.PrepareIosBuildCredentials(r.Context(), mux.Vars(r)["APP_ID"], identifierID, distribution)
+	if err != nil {
+		RenderBuildInputError(w, err)
+		return
+	}
+	renderBuildSecrets(w, IosBuildCredentials{CertificateP12: prepared.CertificateP12, CertificatePassword: prepared.CertificatePassword, ProvisioningProfile: prepared.ProvisioningProfile, TeamID: prepared.TeamID})
 }
 
 func (h *BuildHandler) AllocateBuildNumber(w http.ResponseWriter, r *http.Request) {

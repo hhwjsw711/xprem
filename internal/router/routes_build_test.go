@@ -194,7 +194,7 @@ func TestBuildRoutesEnterpriseDomains(t *testing.T) {
 						KeystorePassword: "store-pass", KeyPassword: "key-pass", KeyAlias: "upload",
 					}))
 				}
-				container := &AppContainer{AppRepo: buildAppRepo{}, CliAuthService: services.NewCliAuthService(acceptingCliRepo{}), ApiKeyAccessService: apikeyrestrictions.NewApiKeyAccessService(repo), AppIdentifierRepo: identifiers, BuildHandler: handlers.NewBuildHandler(environments, credentials, services.NewAppIdentifierService(identifiers))}
+				container := &AppContainer{AppRepo: buildAppRepo{}, CliAuthService: services.NewCliAuthService(acceptingCliRepo{}), ApiKeyAccessService: apikeyrestrictions.NewApiKeyAccessService(repo), AppIdentifierRepo: identifiers, BuildHandler: handlers.NewBuildHandler(environments, credentials, nil, services.NewAppIdentifierService(identifiers))}
 				router := mux.NewRouter()
 				registerBuildRoutes(router, container)
 				method := http.MethodGet
@@ -302,7 +302,7 @@ func TestAndroidBuildCredentialsPlatform(t *testing.T) {
 		t.Run(string(platform), func(t *testing.T) {
 			identifiers := &buildIdentifierRepo{platform: platform}
 			credentials := &buildCredentialsRepo{}
-			handler := handlers.NewBuildHandler(nil, services.NewCredentialsService(credentials, identifiers), nil)
+			handler := handlers.NewBuildHandler(nil, services.NewCredentialsService(credentials, identifiers), nil, nil)
 			policy := &recordingBuildPolicy{}
 			group := buildGroup{router: mux.NewRouter(), cliAuth: services.NewCliAuthService(acceptingCliRepo{}), apiKeyAccess: policy, identifiers: identifiers}
 			group.route(http.MethodGet, "/{APP_ID}/build/{IDENTIFIER_ID}/credentials/android", handler.AndroidCredentials, apikeyrestrictions.BuildActionCreate)
@@ -447,7 +447,7 @@ func TestBuildRegistryRoutesRequireBuildCreate(t *testing.T) {
 		for _, endpoint := range endpoints {
 			t.Run(tc.name+" "+endpoint.method+" "+endpoint.suffix, func(t *testing.T) {
 				access := &buildAccessRepo{access: tc.access}
-				container := &AppContainer{AppRepo: buildAppRepo{}, CliAuthService: services.NewCliAuthService(tc.auth), ApiKeyAccessService: apikeyrestrictions.NewApiKeyAccessService(access), AppIdentifierRepo: &buildIdentifierRepo{platform: types.PlatformAndroid}, BuildHandler: handlers.NewBuildHandler(nil, nil, nil), BuildRegistryHandler: registry}
+				container := &AppContainer{AppRepo: buildAppRepo{}, CliAuthService: services.NewCliAuthService(tc.auth), ApiKeyAccessService: apikeyrestrictions.NewApiKeyAccessService(access), AppIdentifierRepo: &buildIdentifierRepo{platform: types.PlatformAndroid}, BuildHandler: handlers.NewBuildHandler(nil, nil, nil, nil), BuildRegistryHandler: registry}
 				router := mux.NewRouter()
 				registerBuildRoutes(router, container)
 				req := httptest.NewRequest(endpoint.method, "/app-1/build/"+tc.id+endpoint.suffix, strings.NewReader(endpoint.body))
@@ -470,7 +470,7 @@ func TestBuildRegistryRoutesRequireBuildCreate(t *testing.T) {
 func TestBuildRegistryRouteMethodsAndPublicPaths(t *testing.T) {
 	registry := handlers.NewBuildRegistryHandler(services.NewBuildService(nil, nil, nil))
 	access := &buildAccessRepo{}
-	container := &AppContainer{AppRepo: buildAppRepo{}, CliAuthService: services.NewCliAuthService(acceptingCliRepo{}), ApiKeyAccessService: apikeyrestrictions.NewApiKeyAccessService(access), AppIdentifierRepo: &buildIdentifierRepo{platform: types.PlatformAndroid}, BuildHandler: handlers.NewBuildHandler(nil, nil, nil), BuildRegistryHandler: registry}
+	container := &AppContainer{AppRepo: buildAppRepo{}, CliAuthService: services.NewCliAuthService(acceptingCliRepo{}), ApiKeyAccessService: apikeyrestrictions.NewApiKeyAccessService(access), AppIdentifierRepo: &buildIdentifierRepo{platform: types.PlatformAndroid}, BuildHandler: handlers.NewBuildHandler(nil, nil, nil, nil), BuildRegistryHandler: registry}
 	router := mux.NewRouter()
 	registerBuildRoutes(router, container)
 	registerLinkRoutes(router, container)
@@ -555,7 +555,7 @@ func TestBuildLocalUploadRequiresBothTokensAndBuildPermission(t *testing.T) {
 			access := &buildAccessRepo{access: apikeyrestrictions.ApiKeyAccess{ApiKeyID: 42, BuildRules: []apikeyrestrictions.BuildRule{{AppIdentifierID: identifier, Actions: []apikeyrestrictions.BuildAction{apikeyrestrictions.BuildActionCreate}}}}}
 			identifiers := &buildIdentifierRepo{platform: types.PlatformAndroid}
 			service := services.NewBuildService(localUploadBuildRepo{}, identifiers, &bucket.LocalBucket{BasePath: root})
-			container := &AppContainer{AppRepo: buildAppRepo{}, CliAuthService: services.NewCliAuthService(localUploadCliRepo{}), ApiKeyAccessService: apikeyrestrictions.NewApiKeyAccessService(access), AppIdentifierRepo: identifiers, BuildHandler: handlers.NewBuildHandler(nil, nil, nil), BuildRegistryHandler: handlers.NewBuildRegistryHandler(service)}
+			container := &AppContainer{AppRepo: buildAppRepo{}, CliAuthService: services.NewCliAuthService(localUploadCliRepo{}), ApiKeyAccessService: apikeyrestrictions.NewApiKeyAccessService(access), AppIdentifierRepo: identifiers, BuildHandler: handlers.NewBuildHandler(nil, nil, nil, nil), BuildRegistryHandler: handlers.NewBuildRegistryHandler(service)}
 			router := mux.NewRouter()
 			registerBuildRoutes(router, container)
 			body := strings.NewReader("apk")

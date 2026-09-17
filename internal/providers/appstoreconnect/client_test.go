@@ -211,3 +211,105 @@ func TestParsePrivateKey(t *testing.T) {
 		assert.Error(t, err, name)
 	}
 }
+
+func TestBundleIDs(t *testing.T) {
+	server := appstoreconnecttest.New(t)
+	client := fakeClient(t, server)
+	ctx := context.Background()
+
+	missing, err := client.FindBundleID(ctx, "com.example.app")
+	require.NoError(t, err)
+	assert.Nil(t, missing)
+
+	created, err := client.CreateBundleID(ctx, "com.example.app", "Example App")
+	require.NoError(t, err)
+	assert.Equal(t, "com.example.app", created.Identifier)
+
+	// The identifier filter is a substring match at Apple; only the exact identifier counts.
+	found, err := client.FindBundleID(ctx, "com.example.ap")
+	require.NoError(t, err)
+	assert.Nil(t, found)
+	found, err = client.FindBundleID(ctx, "com.example.app")
+	require.NoError(t, err)
+	require.NotNil(t, found)
+	assert.Equal(t, created.ID, found.ID)
+}
+
+func TestCertificateLifecycle(t *testing.T) {
+	server := appstoreconnecttest.New(t)
+	client := fakeClient(t, server)
+	ctx := context.Background()
+
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	csr, err := x509.CreateCertificateRequest(rand.Reader, &x509.CertificateRequest{}, key)
+	require.NoError(t, err)
+	csrPEM := string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csr}))
+
+	created, err := client.CreateDistributionCertificate(ctx, csrPEM)
+	require.NoError(t, err)
+	certificate, err := x509.ParseCertificate(created.DER)
+	require.NoError(t, err)
+	assert.Equal(t, key.Public(), certificate.PublicKey)
+	assert.Equal(t, []string{appstoreconnecttest.TeamID}, certificate.Subject.OrganizationalUnit)
+
+	listed, err := client.ListDistributionCertificates(ctx)
+	require.NoError(t, err)
+	require.Len(t, listed, 1)
+	assert.Equal(t, created.ID, listed[0].ID)
+
+	server.CertificateLimitReached = true
+	var apiErr *APIError
+	_, err = client.CreateDistributionCertificate(ctx, csrPEM)
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, http.StatusConflict, apiErr.Status)
+
+	require.NoError(t, client.RevokeCertificate(ctx, created.ID))
+	listed, err = client.ListDistributionCertificates(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, listed)
+	require.ErrorAs(t, client.RevokeCertificate(ctx, created.ID), &apiErr)
+	assert.Equal(t, http.StatusNotFound, apiErr.Status)
+}
+
+func TestProfileLifecycle(t *testing.T) {
+	server := appstoreconnecttest.New(t)
+	client := fakeClient(t, server)
+	ctx := context.Background()
+	server.BundleIDs = []appstoreconnecttest.BundleID{{ID: "BUNDLE1", Identifier: "com.example.app", Name: "Example"}}
+	server.Devices = []appstoreconnecttest.Device{{ID: "DEVICE1", UDID: "UDID-1", Platform: "IOS", Status: "ENABLED"}}
+	certificateID := server.RegisterCertificate([]byte("certificate"))
+
+	missing, err := client.FindProfile(ctx, "xprem com.example.app ad-hoc")
+	require.NoError(t, err)
+	assert.Nil(t, missing)
+
+	_, err = client.CreateProfile(ctx, ProfileInput{Name: "xprem com.example.app ad-hoc", Type: ProfileTypeAdHoc, BundleID: "BUNDLE1", CertificateIDs: []string{certificateID}})
+	var apiErr *APIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, http.StatusConflict, apiErr.Status)
+
+	created, err := client.CreateProfile(ctx, ProfileInput{Name: "xprem com.example.app ad-hoc", Type: ProfileTypeAdHoc, BundleID: "BUNDLE1", CertificateIDs: []string{certificateID}, DeviceIDs: []string{"DEVICE1"}})
+	require.NoError(t, err)
+	assert.Equal(t, ProfileStateActive, created.State)
+	assert.NotEmpty(t, created.Content)
+
+	found, err := client.FindProfile(ctx, "xprem com.example.app ad-hoc")
+	require.NoError(t, err)
+	require.NotNil(t, found)
+	assert.Equal(t, created.ID, found.ID)
+	assert.Equal(t, ProfileTypeAdHoc, found.Type)
+	assert.Equal(t, created.Content, found.Content)
+
+	certificateIDs, err := client.ProfileCertificateIDs(ctx, created.ID)
+	require.NoError(t, err)
+	assert.Equal(t, []string{certificateID}, certificateIDs)
+	deviceIDs, err := client.ProfileDeviceIDs(ctx, created.ID)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"DEVICE1"}, deviceIDs)
+
+	require.NoError(t, client.DeleteProfile(ctx, created.ID))
+	found, err = client.FindProfile(ctx, "xprem com.example.app ad-hoc")
+	require.NoError(t, err)
+	assert.Nil(t, found)
+}

@@ -93,6 +93,7 @@ export const AUDIT_ACTION_GROUPS: AuditActionGroup[] = [
       'app_store_connect_api_key.saved',
       'app_store_connect_api_key.deleted',
       'ios_certificate.saved',
+      'ios_credentials.downloaded',
       'ios_signing.updated',
       'ios_device_invitation.created',
       'ios_device_invitation.revoked',

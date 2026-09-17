@@ -7,10 +7,12 @@ import { Workflow } from '../workflow';
 import { PhaseLogger } from './log';
 import { BuildInputs } from './prepare';
 import { runBuildCommand } from './run';
+import { BuildPlatform } from './server';
 import { resolveRuntimeVersionAsync } from '../runtimeVersion';
 
-export async function fingerprintAndroidBuild(
+export async function fingerprintBuild(
   build: BuildInputs,
+  platform: BuildPlatform,
   working: string,
   temporary: string,
   expo: ExpoConfig,
@@ -29,6 +31,7 @@ export async function fingerprintAndroidBuild(
         working,
         fingerprintModule,
         output,
+        platform,
       ],
       cwd: working,
       env: build.env,
@@ -45,8 +48,8 @@ export async function fingerprintAndroidBuild(
   }
   const runtime = await resolveRuntimeVersionAsync({
     exp: expo,
-    platform: 'android',
-    workflow: (await fs.pathExists(path.join(working, 'android')))
+    platform,
+    workflow: (await fs.pathExists(path.join(working, platform)))
       ? Workflow.GENERIC
       : Workflow.MANAGED,
     projectDir: working,

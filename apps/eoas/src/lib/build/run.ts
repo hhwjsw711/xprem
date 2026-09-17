@@ -11,6 +11,8 @@ export interface BuildCommand {
   args: string[];
   cwd: string;
   env: NodeJS.ProcessEnv;
+  // Rewrites or drops (undefined) an output line before it reaches the build log.
+  transform?: (line: string) => string | undefined;
 }
 
 let active: ChildProcess | undefined;
@@ -32,7 +34,7 @@ export async function terminateBuildCommand(): Promise<void> {
 }
 
 export async function runBuildCommand(
-  { title, command, args, cwd, env }: BuildCommand,
+  { title, command, args, cwd, env, transform }: BuildCommand,
   log: PhaseLogger,
   secrets: string[]
 ): Promise<void> {
@@ -44,7 +46,10 @@ export async function runBuildCommand(
       return stream
         ? [
             streamBuildOutput(stream, secrets, line => {
-              log.write(line, source);
+              const shown = transform ? transform(line) : line;
+              if (shown !== undefined) {
+                log.write(shown, source);
+              }
             }),
           ]
         : [];

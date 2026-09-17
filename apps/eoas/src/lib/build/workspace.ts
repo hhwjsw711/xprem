@@ -1,4 +1,5 @@
 import { ExpoConfig } from '@expo/config';
+import { createHash } from 'crypto';
 import fg from 'fast-glob';
 import fs from 'fs-extra';
 import os from 'os';
@@ -18,9 +19,12 @@ const TEMPLATES = path.resolve(__dirname, '../../../templates');
 // when the user interrupts the process.
 export async function withTemporaryDirectory<T>(
   buildLog: BuildLog,
-  work: (temporary: string) => Promise<T>
+  work: (temporary: string) => Promise<T>,
+  stableFor?: string
 ): Promise<T> {
-  const temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'eoas-build-'));
+  const temporary = stableFor
+    ? await claimStableDirectory(stableFor)
+    : await fs.mkdtemp(path.join(os.tmpdir(), 'eoas-build-'));
   const interrupt = (): void => {
     buildLog.abort();
     buildLog.write('Build interrupted.');
@@ -36,6 +40,30 @@ export async function withTemporaryDirectory<T>(
     process.removeListener('SIGINT', interrupt);
     process.removeListener('SIGTERM', interrupt);
     await fs.remove(temporary);
+  }
+}
+
+// Xcode tooling caches absolute paths of the project it builds, so one project always builds at one
+// path. The directory holds the pid of its build; a directory left by a dead process is reclaimed.
+async function claimStableDirectory(project: string): Promise<string> {
+  const key = createHash('sha256').update(project).digest('hex').slice(0, 12);
+  const directory = path.join(os.tmpdir(), `eoas-build-${key}`);
+  const owner = Number(await fs.readFile(path.join(directory, 'pid'), 'utf8').catch(() => ''));
+  if (owner && owner !== process.pid && isRunning(owner)) {
+    throw new Error('Another build of this project is already running on this machine.');
+  }
+  await fs.remove(directory);
+  await fs.ensureDir(directory);
+  await fs.writeFile(path.join(directory, 'pid'), String(process.pid));
+  return directory;
+}
+
+function isRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'EPERM';
   }
 }
 
@@ -57,7 +85,8 @@ export async function copyProject(project: string, temporary: string): Promise<s
       const name = path.basename(source);
       if (
         ['.git', '.expo', '.gradle'].includes(name) ||
-        source === path.join(project, 'build-artifacts')
+        source === path.join(project, 'build-artifacts') ||
+        source === path.join(project, 'ios/Pods')
       ) {
         return false;
       }

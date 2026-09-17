@@ -5,10 +5,17 @@ export interface AndroidProfile {
   developmentClient?: boolean;
 }
 
+export interface IosProfile {
+  bundleIdentifier: string;
+  distribution: 'app-store' | 'ad-hoc';
+  developmentClient?: boolean;
+}
+
 export interface BuildProfile {
   channel?: string;
   environment?: string;
-  android: AndroidProfile;
+  android?: AndroidProfile;
+  ios?: IosProfile;
 }
 
 export interface XpremConfig {

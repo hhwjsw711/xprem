@@ -15,6 +15,7 @@ import GitClient from '../vcs/clients/git';
 export interface BuildMetadata {
   profile: string;
   mode?: 'debug' | 'release';
+  distribution?: 'app-store' | 'ad-hoc';
   environment?: string;
   channel?: string;
   cliVersion: string;
@@ -31,11 +32,13 @@ export interface BuildMetadata {
   runtimeVersion?: string;
 }
 
+export type ArtifactType = 'apk' | 'aab' | 'ipa';
+
 export interface LocalBuildRecord {
   schemaVersion: 1;
   id: string;
   endpoint: string;
-  artifactType: 'apk' | 'aab';
+  artifactType: ArtifactType;
   metadata: BuildMetadata;
   size?: number;
   sha256?: string;
@@ -54,9 +57,10 @@ async function saveRecord(file: string, record: LocalBuildRecord): Promise<void>
 
 export async function startBuildRecord(
   build: BuildInputs,
-  artifactType: 'apk' | 'aab',
+  artifactType: ArtifactType,
   mode: 'debug' | 'release',
-  startedAt: string
+  startedAt: string,
+  distribution?: 'app-store' | 'ad-hoc'
 ): Promise<LocalBuildRecord> {
   const git = new GitClient(build.project);
   const gitCommit = await git.getCommitHashAsync();
@@ -69,6 +73,7 @@ export async function startBuildRecord(
     metadata: {
       profile: build.options.profile,
       mode,
+      distribution,
       environment: build.profile.environment,
       channel: build.profile.channel,
       cliVersion: cliPackage.version,
@@ -128,7 +133,7 @@ async function uploadArtifact(file: string, serverUrl: string, log?: PhaseLogger
     !record.metadata ||
     !record.size ||
     !record.sha256 ||
-    !['apk', 'aab'].includes(record.artifactType)
+    !['apk', 'aab', 'ipa'].includes(record.artifactType)
   ) {
     throw new Error('No completed build metadata found beside this artifact.');
   }

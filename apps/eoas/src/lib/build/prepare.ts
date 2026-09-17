@@ -59,6 +59,17 @@ export async function selectProfile(project: string, options: BuildOptions): Pro
   return { ...profile, channel: options.channel, environment: undefined };
 }
 
+export function platformProfile<P extends BuildPlatform>(
+  profile: BuildProfile,
+  platform: P
+): NonNullable<BuildProfile[P]> {
+  const section = profile[platform];
+  if (!section) {
+    throw new Error(`This build profile has no ${platform} section in ${CONFIG_FILENAME}.`);
+  }
+  return section;
+}
+
 export async function readEnvFile(
   project: string,
   envFile?: string

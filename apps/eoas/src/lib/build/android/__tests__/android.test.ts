@@ -11,7 +11,7 @@ import {
   startBuildRecord,
   uploadBuildArtifact,
 } from '../../artifacts';
-import { fingerprintAndroidBuild } from '../../fingerprint';
+import { fingerprintBuild } from '../../fingerprint';
 import {
   allocateBuildNumber,
   fetchCredentials,
@@ -28,7 +28,7 @@ vi.mock('../../artifacts', () => ({
   finishBuildRecord: vi.fn(),
   uploadBuildArtifact: vi.fn(),
 }));
-vi.mock('../../fingerprint', () => ({ fingerprintAndroidBuild: vi.fn() }));
+vi.mock('../../fingerprint', () => ({ fingerprintBuild: vi.fn() }));
 vi.mock('../../upload', () => ({ createLogUploader: vi.fn() }));
 
 vi.mock('@expo/spawn-async', () => ({ default: vi.fn() }));
@@ -73,9 +73,10 @@ describe('Android orchestration', () => {
         },
       };
     });
-    vi.mocked(fingerprintAndroidBuild).mockImplementation(
-      async (build, working, _temporary, expo) => {
+    vi.mocked(fingerprintBuild).mockImplementation(
+      async (build, platform, working, _temporary, expo) => {
         events.push('fingerprint');
+        expect(platform).toBe('android');
         expect(build.env.OVERRIDE).toBe('file-secret-value');
         expect(build.env.JAVA_HOME).toBe('/checked/jdk');
         const frozen = await fs.readJson(path.join(working, 'app.json'));
@@ -343,7 +344,7 @@ describe('Android orchestration', () => {
       const sink = { write: vi.fn(), close: vi.fn().mockResolvedValue(undefined) };
       vi.mocked(createLogUploader).mockReturnValue(sink);
       if (failure) {
-        vi.mocked(fingerprintAndroidBuild).mockRejectedValueOnce(new Error('fingerprint failed'));
+        vi.mocked(fingerprintBuild).mockRejectedValueOnce(new Error('fingerprint failed'));
       }
       const build = buildAndroid(project, {
         profile: 'production',
@@ -520,7 +521,7 @@ describe('Android orchestration', () => {
     }
   });
   it('reports a failed compilation for the existing ID', async () => {
-    vi.mocked(fingerprintAndroidBuild).mockRejectedValue(new Error('fingerprint failed'));
+    vi.mocked(fingerprintBuild).mockRejectedValue(new Error('fingerprint failed'));
     await expect(
       buildAndroid(project, {
         profile: 'production',

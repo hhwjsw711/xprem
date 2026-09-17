@@ -35,6 +35,7 @@ import {
   buildFileName,
   buildVersionLabel,
   canShareBuild,
+  isInstallableFromLink,
   formatBytes,
   formatDuration,
 } from './format';
@@ -237,7 +238,7 @@ export const BuildDetail = () => {
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            {canShare && build.artifactType !== 'apk' && (
+            {canShare && !isInstallableFromLink(build) && (
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -247,7 +248,7 @@ export const BuildDetail = () => {
                       </Button>
                     </span>
                   </TooltipTrigger>
-                  <TooltipContent>You can only share APK</TooltipContent>
+                  <TooltipContent>Only APK and iOS Ad Hoc builds can be shared</TooltipContent>
                 </Tooltip>
               </TooltipProvider>
             )}
@@ -274,7 +275,7 @@ export const BuildDetail = () => {
         </div>
       )}
 
-      {build.artifactType === 'apk' && (
+      {isInstallableFromLink(build) && (
         <BuildSharesCard
           key={`shares/${selectedAppId}/${build.id}`}
           build={build}

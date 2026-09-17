@@ -7,11 +7,14 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -39,17 +42,34 @@ type Server struct {
 	// DeviceConflictDetail injects a registration conflict while lookups still return no device.
 	DeviceConflictDetail string
 	// ConflictThenAppear makes device registration answer 409 while adding the device to the team.
-	ConflictThenAppear  bool
-	Devices             []Device
-	requests            []string
-	certificates        map[string][]byte
-	certificatesCreated int
-	publicKey           *ecdsa.PublicKey
+	ConflictThenAppear bool
+	// CertificateLimitReached makes certificate creation answer 409.
+	CertificateLimitReached bool
+	Devices                 []Device
+	BundleIDs               []BundleID
+	Profiles                []Profile
+	requests                []string
+	certificates            map[string][]byte
+	certificatesCreated     int
+	publicKey               *ecdsa.PublicKey
+	issuer                  *ecdsa.PrivateKey
 }
 
 // Device is a registered device with the attributes Apple lists.
 type Device struct {
 	ID, Name, UDID, Model, Platform, DeviceClass, Status, AddedDate string
+}
+
+// BundleID is a registered app identifier.
+type BundleID struct {
+	ID, Identifier, Name string
+}
+
+// Profile is a provisioning profile with the relationships Apple records.
+type Profile struct {
+	ID, Name, Type, State, BundleID string
+	CertificateIDs, DeviceIDs       []string
+	Content                         []byte
 }
 
 func New(t testing.TB) *Server {
@@ -62,10 +82,15 @@ func New(t testing.TB) *Server {
 	if err != nil {
 		t.Fatal(err)
 	}
+	issuer, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
 	server := &Server{
 		PrivateKeyPEM: string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: pkcs8})),
 		certificates:  map[string][]byte{},
 		publicKey:     &apiKey.PublicKey,
+		issuer:        issuer,
 	}
 	httpServer := httptest.NewServer(server)
 	t.Cleanup(httpServer.Close)
@@ -114,20 +139,245 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method + " " + r.URL.Path {
 	case "GET /v1/bundleIds":
-		writeJSON(w, http.StatusOK, map[string]any{"data": []any{}})
+		s.listBundleIDs(w, r)
+	case "POST /v1/bundleIds":
+		s.createBundleID(w, r)
 	case "GET /v1/certificates":
 		s.listCertificates(w, r)
+	case "POST /v1/certificates":
+		s.createCertificate(w, r)
 	case "GET /v1/devices":
 		s.listDevices(w, r)
 	case "POST /v1/devices":
 		s.createDevice(w, r)
+	case "GET /v1/profiles":
+		s.listProfiles(w, r)
+	case "POST /v1/profiles":
+		s.createProfile(w, r)
 	default:
-		if id, ok := strings.CutPrefix(r.URL.Path, "/v1/devices/"); ok && r.Method == http.MethodPatch {
-			s.updateDevice(w, r, id)
+		s.serveResource(w, r)
+	}
+}
+
+// serveResource routes the requests that carry a resource id in their path.
+func (s *Server) serveResource(w http.ResponseWriter, r *http.Request) {
+	if id, ok := strings.CutPrefix(r.URL.Path, "/v1/devices/"); ok && r.Method == http.MethodPatch {
+		s.updateDevice(w, r, id)
+		return
+	}
+	if id, ok := strings.CutPrefix(r.URL.Path, "/v1/certificates/"); ok && r.Method == http.MethodDelete {
+		if _, exists := s.certificates[id]; !exists {
+			writeError(w, http.StatusNotFound, "NOT_FOUND", "There is no resource of type 'certificates' with id '"+id+"'")
 			return
 		}
-		writeError(w, http.StatusNotFound, "NOT_FOUND", "unknown resource")
+		delete(s.certificates, id)
+		w.WriteHeader(http.StatusNoContent)
+		return
 	}
+	if rest, ok := strings.CutPrefix(r.URL.Path, "/v1/profiles/"); ok {
+		id, relationship, _ := strings.Cut(rest, "/relationships/")
+		index := slices.IndexFunc(s.Profiles, func(profile Profile) bool { return profile.ID == id })
+		if index < 0 {
+			writeError(w, http.StatusNotFound, "NOT_FOUND", "There is no resource of type 'profiles' with id '"+id+"'")
+			return
+		}
+		switch {
+		case r.Method == http.MethodDelete && relationship == "":
+			s.Profiles = slices.Delete(s.Profiles, index, index+1)
+			w.WriteHeader(http.StatusNoContent)
+		case r.Method == http.MethodGet && relationship == "certificates":
+			writeJSON(w, http.StatusOK, map[string]any{"data": refs("certificates", s.Profiles[index].CertificateIDs)})
+		case r.Method == http.MethodGet && relationship == "devices":
+			writeJSON(w, http.StatusOK, map[string]any{"data": refs("devices", s.Profiles[index].DeviceIDs)})
+		default:
+			writeError(w, http.StatusNotFound, "NOT_FOUND", "unknown resource")
+		}
+		return
+	}
+	writeError(w, http.StatusNotFound, "NOT_FOUND", "unknown resource")
+}
+
+func refs(kind string, ids []string) []map[string]string {
+	data := []map[string]string{}
+	for _, id := range ids {
+		data = append(data, map[string]string{"type": kind, "id": id})
+	}
+	return data
+}
+
+func (s *Server) listBundleIDs(w http.ResponseWriter, r *http.Request) {
+	identifier := r.URL.Query().Get("filter[identifier]")
+	data := []map[string]any{}
+	for _, bundleID := range s.BundleIDs {
+		if identifier == "" || strings.Contains(bundleID.Identifier, identifier) {
+			data = append(data, map[string]any{"type": "bundleIds", "id": bundleID.ID, "attributes": map[string]string{
+				"identifier": bundleID.Identifier, "name": bundleID.Name, "platform": "IOS",
+			}})
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": data})
+}
+
+func (s *Server) createBundleID(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Data struct {
+			Attributes struct {
+				Identifier string `json:"identifier"`
+				Name       string `json:"name"`
+				Platform   string `json:"platform"`
+			} `json:"attributes"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "PARAMETER_ERROR", err.Error())
+		return
+	}
+	attributes := body.Data.Attributes
+	if attributes.Identifier == "" || attributes.Name == "" || attributes.Platform != "IOS" {
+		writeError(w, http.StatusConflict, "ENTITY_ERROR.ATTRIBUTE.INVALID", "invalid bundle id attributes")
+		return
+	}
+	for _, bundleID := range s.BundleIDs {
+		if bundleID.Identifier == attributes.Identifier {
+			writeError(w, http.StatusConflict, "ENTITY_ERROR.ATTRIBUTE.INVALID", "An App ID with Identifier '"+attributes.Identifier+"' is not available. Please enter a different string.")
+			return
+		}
+	}
+	bundleID := BundleID{ID: fmt.Sprintf("BUNDLE%d", len(s.BundleIDs)+1), Identifier: attributes.Identifier, Name: attributes.Name}
+	s.BundleIDs = append(s.BundleIDs, bundleID)
+	writeJSON(w, http.StatusCreated, map[string]any{"data": map[string]any{"type": "bundleIds", "id": bundleID.ID, "attributes": map[string]string{
+		"identifier": bundleID.Identifier, "name": bundleID.Name, "platform": "IOS",
+	}}})
+}
+
+// createCertificate signs the request's CSR the way Apple names iOS distribution certificates.
+func (s *Server) createCertificate(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Data struct {
+			Attributes struct {
+				CsrContent      string `json:"csrContent"`
+				CertificateType string `json:"certificateType"`
+			} `json:"attributes"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "PARAMETER_ERROR", err.Error())
+		return
+	}
+	block, _ := pem.Decode([]byte(body.Data.Attributes.CsrContent))
+	if block == nil || block.Type != "CERTIFICATE REQUEST" || body.Data.Attributes.CertificateType != "IOS_DISTRIBUTION" {
+		writeError(w, http.StatusConflict, "ENTITY_ERROR.ATTRIBUTE.INVALID", "invalid certificate attributes")
+		return
+	}
+	request, err := x509.ParseCertificateRequest(block.Bytes)
+	if err != nil || request.CheckSignature() != nil {
+		writeError(w, http.StatusConflict, "ENTITY_ERROR.ATTRIBUTE.INVALID", "invalid certificate signing request")
+		return
+	}
+	if s.CertificateLimitReached {
+		writeError(w, http.StatusConflict, "ENTITY_ERROR.ATTRIBUTE.INVALID", "You already have a current iOS Distribution certificate or a pending certificate request.")
+		return
+	}
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(int64(s.certificatesCreated + 1)),
+		Subject:      pkix.Name{CommonName: "iPhone Distribution: Example Team (" + TeamID + ")", OrganizationalUnit: []string{TeamID}},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(365 * 24 * time.Hour),
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, request.PublicKey, s.issuer)
+	if err != nil {
+		writeError(w, http.StatusConflict, "ENTITY_ERROR.ATTRIBUTE.INVALID", err.Error())
+		return
+	}
+	id := s.addCertificate(der)
+	writeJSON(w, http.StatusCreated, map[string]any{"data": map[string]any{"type": "certificates", "id": id, "attributes": map[string]any{"certificateContent": der}}})
+}
+
+func (s *Server) listProfiles(w http.ResponseWriter, r *http.Request) {
+	name := r.URL.Query().Get("filter[name]")
+	data := []map[string]any{}
+	for _, profile := range s.Profiles {
+		if name == "" || strings.Contains(profile.Name, name) {
+			data = append(data, profileJSON(profile))
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": data})
+}
+
+func profileJSON(profile Profile) map[string]any {
+	return map[string]any{"type": "profiles", "id": profile.ID, "attributes": map[string]any{
+		"name": profile.Name, "profileType": profile.Type, "profileState": profile.State, "profileContent": profile.Content,
+		"expirationDate": time.Now().Add(365 * 24 * time.Hour).UTC().Format("2006-01-02T15:04:05.000-0700"),
+	}}
+}
+
+func (s *Server) createProfile(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Data struct {
+			Attributes struct {
+				Name        string `json:"name"`
+				ProfileType string `json:"profileType"`
+			} `json:"attributes"`
+			Relationships struct {
+				BundleID     struct{ Data ref }   `json:"bundleId"`
+				Certificates struct{ Data []ref } `json:"certificates"`
+				Devices      struct{ Data []ref } `json:"devices"`
+			} `json:"relationships"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "PARAMETER_ERROR", err.Error())
+		return
+	}
+	attributes, relationships := body.Data.Attributes, body.Data.Relationships
+	if attributes.Name == "" || (attributes.ProfileType != "IOS_APP_STORE" && attributes.ProfileType != "IOS_APP_ADHOC") {
+		writeError(w, http.StatusConflict, "ENTITY_ERROR.ATTRIBUTE.INVALID", "invalid profile attributes")
+		return
+	}
+	for _, profile := range s.Profiles {
+		if profile.Name == attributes.Name {
+			writeError(w, http.StatusConflict, "ENTITY_ERROR.ATTRIBUTE.INVALID", "The provided entity includes an attribute with a value that has already been used")
+			return
+		}
+	}
+	if !slices.ContainsFunc(s.BundleIDs, func(bundleID BundleID) bool { return bundleID.ID == relationships.BundleID.Data.ID }) {
+		writeError(w, http.StatusConflict, "ENTITY_ERROR.RELATIONSHIP.INVALID", "There is no bundle id with id '"+relationships.BundleID.Data.ID+"'")
+		return
+	}
+	if len(relationships.Certificates.Data) == 0 {
+		writeError(w, http.StatusConflict, "ENTITY_ERROR.RELATIONSHIP.INVALID", "A profile needs at least one certificate")
+		return
+	}
+	profile := Profile{
+		ID: fmt.Sprintf("PROFILE%d", len(s.Profiles)+1), Name: attributes.Name, Type: attributes.ProfileType,
+		State: "ACTIVE", BundleID: relationships.BundleID.Data.ID, CertificateIDs: []string{}, DeviceIDs: []string{},
+	}
+	for _, certificate := range relationships.Certificates.Data {
+		if _, exists := s.certificates[certificate.ID]; !exists {
+			writeError(w, http.StatusConflict, "ENTITY_ERROR.RELATIONSHIP.INVALID", "There is no certificate with id '"+certificate.ID+"'")
+			return
+		}
+		profile.CertificateIDs = append(profile.CertificateIDs, certificate.ID)
+	}
+	for _, device := range relationships.Devices.Data {
+		if !slices.ContainsFunc(s.Devices, func(known Device) bool { return known.ID == device.ID }) {
+			writeError(w, http.StatusConflict, "ENTITY_ERROR.RELATIONSHIP.INVALID", "There is no device with id '"+device.ID+"'")
+			return
+		}
+		profile.DeviceIDs = append(profile.DeviceIDs, device.ID)
+	}
+	if attributes.ProfileType == "IOS_APP_ADHOC" && len(profile.DeviceIDs) == 0 {
+		writeError(w, http.StatusConflict, "ENTITY_ERROR.RELATIONSHIP.INVALID", "An Ad Hoc profile needs at least one device")
+		return
+	}
+	profile.Content = []byte("mobileprovision " + profile.ID + " " + strings.Join(profile.DeviceIDs, ","))
+	s.Profiles = append(s.Profiles, profile)
+	writeJSON(w, http.StatusCreated, map[string]any{"data": profileJSON(profile)})
+}
+
+type ref struct {
+	Type string `json:"type"`
+	ID   string `json:"id"`
 }
 
 func (s *Server) authorize(r *http.Request) error {

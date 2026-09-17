@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -22,6 +23,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/require"
+	"howett.net/plist"
 )
 
 const (
@@ -186,6 +188,8 @@ func newRegistryFixture(t *testing.T) *registryFixture {
 	router.HandleFunc("/{APP_ID}/build/{IDENTIFIER_ID}/artifacts/{BUILD_ID}/complete", authorized(handler.Complete)).Methods(http.MethodPost)
 	router.HandleFunc("/{APP_ID}/build/{IDENTIFIER_ID}/artifacts/{BUILD_ID}/upload", authorized(handler.UploadLocal)).Methods(http.MethodPut)
 	router.HandleFunc("/build-shares/{TOKEN}", handler.PublicShare).Methods(http.MethodGet)
+	router.HandleFunc("/build-shares/{TOKEN}/manifest.plist", handler.PublicShareManifest).Methods(http.MethodGet)
+	router.HandleFunc("/build-shares/{TOKEN}/app.ipa", handler.PublicShareArtifact).Methods(http.MethodGet)
 	router.HandleFunc("/api/app/{APP_ID}/builds", handler.List).Methods(http.MethodGet)
 	router.HandleFunc("/api/app/{APP_ID}/builds/{BUILD_ID}", handler.Get).Methods(http.MethodGet)
 	router.HandleFunc("/api/app/{APP_ID}/builds/{BUILD_ID}/logs", handler.ListLogs).Methods(http.MethodGet)
@@ -548,4 +552,47 @@ func TestBuildRegistryUploadBodyIsBounded(t *testing.T) {
 	w := httptest.NewRecorder()
 	f.router.ServeHTTP(w, req)
 	require.Equal(t, http.StatusUnauthorized, w.Code, "the token is checked before any byte is read")
+}
+
+func TestSharedIosBuildInstallsThroughAManifest(t *testing.T) {
+	f := newRegistryFixture(t)
+	f.repo.builds[registryBuild] = types.BuildRecord{
+		ID: registryBuild, AppID: registryApp, AppIdentifierID: registryIdentifier, Platform: types.PlatformIOS,
+		ApplicationID: "com.example.app", Status: types.BuildStatusReady, ArtifactType: types.BuildArtifactIPA,
+		Metadata: types.BuildMetadata{Distribution: types.IosDistributionAdHoc, Version: "1.4.0", BuildNumber: "42"},
+	}
+	w := f.do(http.MethodPost, "/api/app/"+registryApp+"/builds/"+registryBuild+"/shares", "")
+	require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
+	var created struct {
+		URL string `json:"url"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &created))
+	sharePath := strings.TrimPrefix(created.URL, "https://ota.example.com/sub/path")
+
+	w = f.do(http.MethodGet, sharePath, "")
+	require.Equal(t, http.StatusOK, w.Code)
+	require.Equal(t, "text/html; charset=utf-8", w.Header().Get("Content-Type"))
+	require.Equal(t, "no-store", w.Header().Get("Cache-Control"))
+	require.Contains(t, w.Body.String(), `href="itms-services://?action=download-manifest&amp;url=`+url.QueryEscape(created.URL+"/manifest.plist")+`"`)
+	require.Contains(t, w.Body.String(), "Version 1.4.0 (42)")
+
+	w = f.do(http.MethodGet, sharePath+"/manifest.plist", "")
+	require.Equal(t, http.StatusOK, w.Code)
+	var manifest struct {
+		Items []struct {
+			Assets []struct {
+				Kind string `plist:"kind"`
+				URL  string `plist:"url"`
+			} `plist:"assets"`
+			Metadata map[string]string `plist:"metadata"`
+		} `plist:"items"`
+	}
+	_, err := plist.Unmarshal(w.Body.Bytes(), &manifest)
+	require.NoError(t, err)
+	require.Len(t, manifest.Items, 1)
+	require.Equal(t, "software-package", manifest.Items[0].Assets[0].Kind)
+	require.Equal(t, created.URL+"/app.ipa", manifest.Items[0].Assets[0].URL)
+	require.Equal(t, map[string]string{"bundle-identifier": "com.example.app", "bundle-version": "1.4.0", "kind": "software", "title": "com.example.app"}, manifest.Items[0].Metadata)
+
+	require.Equal(t, http.StatusBadRequest, f.do(http.MethodGet, "/build-shares/"+strings.Repeat("0", 64)+"/manifest.plist", "").Code)
 }

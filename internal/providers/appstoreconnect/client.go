@@ -1,5 +1,5 @@
 // Package appstoreconnect is a minimal App Store Connect API client for
-// signing certificates and devices.
+// signing certificates, bundle ids, provisioning profiles and devices.
 package appstoreconnect
 
 import (
@@ -54,6 +54,38 @@ type Client struct {
 type Certificate struct {
 	ID  string
 	DER []byte
+}
+
+// BundleID is an app identifier registered in the team.
+type BundleID struct {
+	ID         string
+	Identifier string
+}
+
+// Profile types and states as Apple names them.
+const (
+	ProfileTypeAppStore = "IOS_APP_STORE"
+	ProfileTypeAdHoc    = "IOS_APP_ADHOC"
+	ProfileStateActive  = "ACTIVE"
+)
+
+// Profile is a provisioning profile of the team; Content is the .mobileprovision file.
+type Profile struct {
+	ID        string
+	Name      string
+	Type      string
+	State     string
+	Content   []byte
+	ExpiresAt string
+}
+
+// ProfileInput describes a provisioning profile to create; the ids are Apple resource ids.
+type ProfileInput struct {
+	Name           string
+	Type           string
+	BundleID       string
+	CertificateIDs []string
+	DeviceIDs      []string
 }
 
 // Device is a device registered in the team; AddedDate is Apple's raw timestamp.
@@ -115,6 +147,36 @@ type certificateAttributes struct {
 	CertificateContent []byte `json:"certificateContent"`
 }
 
+type bundleIDAttributes struct {
+	Identifier string `json:"identifier"`
+}
+
+type profileAttributes struct {
+	Name           string `json:"name"`
+	ProfileType    string `json:"profileType"`
+	ProfileState   string `json:"profileState"`
+	ProfileContent []byte `json:"profileContent"`
+	ExpirationDate string `json:"expirationDate"`
+}
+
+// profile combines the Apple resource ID with its profile attributes.
+func (a profileAttributes) profile(id string) Profile {
+	return Profile{ID: id, Name: a.Name, Type: a.ProfileType, State: a.ProfileState, Content: a.ProfileContent, ExpiresAt: a.ExpirationDate}
+}
+
+type resourceRef struct {
+	Type string `json:"type"`
+	ID   string `json:"id"`
+}
+
+func resourceRefs(kind string, ids []string) []resourceRef {
+	refs := make([]resourceRef, len(ids))
+	for i, id := range ids {
+		refs[i] = resourceRef{Type: kind, ID: id}
+	}
+	return refs
+}
+
 type deviceAttributes struct {
 	Name        string `json:"name"`
 	UDID        string `json:"udid"`
@@ -147,6 +209,113 @@ func (c *Client) ListDistributionCertificates(ctx context.Context) ([]Certificat
 		certificates[i] = Certificate{ID: certificate.ID, DER: certificate.Attributes.CertificateContent}
 	}
 	return certificates, nil
+}
+
+// CreateDistributionCertificate has Apple sign a PEM certificate request as an iOS distribution certificate.
+func (c *Client) CreateDistributionCertificate(ctx context.Context, csrPEM string) (Certificate, error) {
+	body := map[string]any{"data": map[string]any{
+		"type":       "certificates",
+		"attributes": map[string]string{"csrContent": csrPEM, "certificateType": "IOS_DISTRIBUTION"},
+	}}
+	var created document[certificateAttributes]
+	if err := c.do(ctx, http.MethodPost, "/certificates", body, &created); err != nil {
+		return Certificate{}, err
+	}
+	return Certificate{ID: created.Data.ID, DER: created.Data.Attributes.CertificateContent}, nil
+}
+
+// RevokeCertificate revokes a certificate of the team.
+func (c *Client) RevokeCertificate(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodDelete, "/certificates/"+url.PathEscape(id), nil, nil)
+}
+
+// FindBundleID returns the team's bundle id with this identifier, or nil when it is not registered.
+func (c *Client) FindBundleID(ctx context.Context, identifier string) (*BundleID, error) {
+	query := url.Values{"filter[identifier]": {identifier}, "limit": {"200"}}
+	var list listDocument[bundleIDAttributes]
+	if err := c.do(ctx, http.MethodGet, "/bundleIds?"+query.Encode(), nil, &list); err != nil {
+		return nil, err
+	}
+	for _, bundleID := range list.Data {
+		if bundleID.Attributes.Identifier == identifier {
+			return &BundleID{ID: bundleID.ID, Identifier: identifier}, nil
+		}
+	}
+	return nil, nil
+}
+
+// CreateBundleID registers an iOS bundle id in the team.
+func (c *Client) CreateBundleID(ctx context.Context, identifier string, name string) (BundleID, error) {
+	body := map[string]any{"data": map[string]any{
+		"type":       "bundleIds",
+		"attributes": map[string]string{"identifier": identifier, "name": name, "platform": "IOS"},
+	}}
+	var created document[bundleIDAttributes]
+	if err := c.do(ctx, http.MethodPost, "/bundleIds", body, &created); err != nil {
+		return BundleID{}, err
+	}
+	return BundleID{ID: created.Data.ID, Identifier: created.Data.Attributes.Identifier}, nil
+}
+
+// FindProfile returns the team's provisioning profile with this name, or nil when there is none.
+func (c *Client) FindProfile(ctx context.Context, name string) (*Profile, error) {
+	query := url.Values{"filter[name]": {name}, "limit": {"200"}}
+	var list listDocument[profileAttributes]
+	if err := c.do(ctx, http.MethodGet, "/profiles?"+query.Encode(), nil, &list); err != nil {
+		return nil, err
+	}
+	for _, profile := range list.Data {
+		if profile.Attributes.Name == name {
+			found := profile.Attributes.profile(profile.ID)
+			return &found, nil
+		}
+	}
+	return nil, nil
+}
+
+// ProfileCertificateIDs lists the Apple ids of the certificates a profile includes.
+func (c *Client) ProfileCertificateIDs(ctx context.Context, profileID string) ([]string, error) {
+	return c.relatedIDs(ctx, "/profiles/"+url.PathEscape(profileID)+"/relationships/certificates")
+}
+
+// ProfileDeviceIDs lists the Apple ids of the devices a profile includes.
+func (c *Client) ProfileDeviceIDs(ctx context.Context, profileID string) ([]string, error) {
+	return c.relatedIDs(ctx, "/profiles/"+url.PathEscape(profileID)+"/relationships/devices")
+}
+
+func (c *Client) relatedIDs(ctx context.Context, path string) ([]string, error) {
+	resources, err := listResources[struct{}](ctx, c, path+"?limit=200")
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, len(resources))
+	for i, resource := range resources {
+		ids[i] = resource.ID
+	}
+	return ids, nil
+}
+
+// CreateProfile creates a provisioning profile and returns it with its content.
+func (c *Client) CreateProfile(ctx context.Context, input ProfileInput) (Profile, error) {
+	body := map[string]any{"data": map[string]any{
+		"type":       "profiles",
+		"attributes": map[string]string{"name": input.Name, "profileType": input.Type},
+		"relationships": map[string]any{
+			"bundleId":     map[string]any{"data": resourceRef{Type: "bundleIds", ID: input.BundleID}},
+			"certificates": map[string]any{"data": resourceRefs("certificates", input.CertificateIDs)},
+			"devices":      map[string]any{"data": resourceRefs("devices", input.DeviceIDs)},
+		},
+	}}
+	var created document[profileAttributes]
+	if err := c.do(ctx, http.MethodPost, "/profiles", body, &created); err != nil {
+		return Profile{}, err
+	}
+	return created.Data.Attributes.profile(created.Data.ID), nil
+}
+
+// DeleteProfile deletes a provisioning profile of the team.
+func (c *Client) DeleteProfile(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodDelete, "/profiles/"+url.PathEscape(id), nil, nil)
 }
 
 // ListIOSDevices returns the team's devices that are not Macs, enabled or not.

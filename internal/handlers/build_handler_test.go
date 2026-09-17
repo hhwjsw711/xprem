@@ -69,7 +69,7 @@ func TestBuildCredentialsAllowlistAndWholeFile(t *testing.T) {
 	}))
 	unreadablePlaySecret := "not a decryptable Google Play secret"
 	repo.credentials.SealedGoogleServiceAccountKey = &unreadablePlaySecret
-	h := NewBuildHandler(nil, credentials, nil)
+	h := NewBuildHandler(nil, credentials, nil, nil)
 	req := mux.SetURLVars(buildTestRequest("GET"), map[string]string{"APP_ID": "app-1", "IDENTIFIER_ID": "untrusted-route-id"})
 	w := httptest.NewRecorder()
 	h.AndroidCredentials(w, req)
@@ -89,7 +89,7 @@ func TestBuildCredentialsErrorsDoNotExposeSecrets(t *testing.T) {
 		{&store.ErrResourceNotFound{Resource: "android credentials", Identifier: "id"}, 404},
 		{store.ErrNotSupportedInStatelessMode, 400},
 	} {
-		h := NewBuildHandler(nil, services.NewCredentialsService(&buildCredentialRepository{err: tc.err}, &buildIdentifierRepository{}), nil)
+		h := NewBuildHandler(nil, services.NewCredentialsService(&buildCredentialRepository{err: tc.err}, &buildIdentifierRepository{}), nil, nil)
 		w := httptest.NewRecorder()
 		h.AndroidCredentials(w, mux.SetURLVars(buildTestRequest("GET"), map[string]string{"APP_ID": "app-1", "IDENTIFIER_ID": "untrusted-route-id"}))
 		require.Equal(t, tc.status, w.Code)
@@ -99,7 +99,7 @@ func TestBuildCredentialsErrorsDoNotExposeSecrets(t *testing.T) {
 func TestBuildEnvironmentRejectsAmbiguousQuery(t *testing.T) {
 	for _, query := range []string{"channel=a&environment=b", "channel=a&channel=b", "environment=", "channel=", "other=x", "environment=%zz", "environment=a;b"} {
 		t.Run(query, func(t *testing.T) {
-			h := NewBuildHandler(nil, nil, nil) // invalid requests cannot reach the service
+			h := NewBuildHandler(nil, nil, nil, nil) // invalid requests cannot reach the service
 			w := httptest.NewRecorder()
 			h.Environment(w, httptest.NewRequest("GET", "/?"+query, nil))
 			require.Equal(t, 400, w.Code, w.Body.String())
@@ -116,7 +116,7 @@ func TestAllocateBuildNumber(t *testing.T) {
 		{2_100_000_000, 409, `{"title":"Conflict","detail":"build number limit reached","status":409}`},
 	} {
 		repo := &buildIdentifierRepository{allocated: tc.allocated}
-		h := NewBuildHandler(nil, nil, services.NewAppIdentifierService(repo))
+		h := NewBuildHandler(nil, nil, nil, services.NewAppIdentifierService(repo))
 		w := httptest.NewRecorder()
 		h.AllocateBuildNumber(w, mux.SetURLVars(buildTestRequest("POST"), map[string]string{"APP_ID": "app-1", "IDENTIFIER_ID": "untrusted-route-id"}))
 		require.Equal(t, tc.status, w.Code, w.Body.String())
@@ -132,7 +132,7 @@ func buildTestRequest(method string) *http.Request {
 }
 
 func TestBuildHandlersRequireResolvedIdentifier(t *testing.T) {
-	h := NewBuildHandler(nil, nil, nil)
+	h := NewBuildHandler(nil, nil, nil, nil)
 	for name, handler := range map[string]http.HandlerFunc{
 		"resolve":     h.ResolveIdentifier,
 		"credentials": h.AndroidCredentials,
@@ -148,7 +148,7 @@ func TestBuildHandlersRequireResolvedIdentifier(t *testing.T) {
 }
 
 func TestBuildResolveUsesContext(t *testing.T) {
-	h := NewBuildHandler(nil, nil, nil)
+	h := NewBuildHandler(nil, nil, nil, nil)
 	req := mux.SetURLVars(buildTestRequest("GET"), map[string]string{"IDENTIFIER_ID": "untrusted-route-id"})
 	recorder := httptest.NewRecorder()
 	h.ResolveIdentifier(recorder, req)

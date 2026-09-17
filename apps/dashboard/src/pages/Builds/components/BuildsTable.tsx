@@ -67,8 +67,16 @@ export const BuildsTable = ({ builds, loading }: { builds: BuildRecord[]; loadin
             ))}
           {builds.map(build => {
             const { metadata } = build;
-            const title =
-              build.artifactType === 'aab' ? 'Android Play Store build' : 'Android APK build';
+            const title = {
+              apk: 'Android APK build',
+              aab: 'Android Play Store build',
+              ipa:
+                metadata.distribution === 'ad-hoc'
+                  ? 'iOS Ad Hoc build'
+                  : metadata.distribution === 'app-store'
+                    ? 'iOS App Store build'
+                    : 'iOS build',
+            }[build.artifactType];
             const building = build.status === 'building';
             const duration = building
               ? Date.now() - new Date(metadata.startedAt).getTime()

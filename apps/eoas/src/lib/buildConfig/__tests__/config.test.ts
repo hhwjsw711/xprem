@@ -27,6 +27,22 @@ describe('xprem.json contract', () => {
       'xprem.json was not found. Run "eoas build:configure" to create it.'
     );
   });
+  it('accepts an ios section alone or beside android, and requires one of them', () => {
+    const ios = { bundleIdentifier: 'com.example.qa', distribution: 'ad-hoc' };
+    const profiles = (qa: object): object => ({ schemaVersion: 1, profiles: { qa } });
+    expect(validateConfig(profiles({ ios }))).toEqual([]);
+    expect(validateConfig(profiles({ ...profile, ios }))).toEqual([]);
+    expect(validateConfig(profiles({ ios: { ...ios, developmentClient: true } }))).toEqual([]);
+    expect(validateConfig(profiles({ channel: 'staging' }))).not.toEqual([]);
+    expect(validateConfig(profiles({ ios: { ...ios, distribution: 'enterprise' } }))).not.toEqual(
+      []
+    );
+    expect(
+      validateConfig(
+        profiles({ ios: { ...ios, distribution: 'app-store', developmentClient: true } })
+      )
+    ).not.toEqual([]);
+  });
   it('accepts explicit profiles with or without a resource selection', () => {
     expect(validateConfig(config())).toEqual([]);
     const offline = config();

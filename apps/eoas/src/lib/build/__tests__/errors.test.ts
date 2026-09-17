@@ -39,6 +39,22 @@ describe('build diagnostics', () => {
     );
   });
 
+  it('repeats compiler errors after the output that buries them', () => {
+    const swiftError = '/app/Runtime.swift:219:35: error: a C function pointer cannot be formed';
+    const message = formatBuildError(
+      'Archiving the app',
+      {
+        status: 65,
+        stdout: `${swiftError}\n    |   - error: a C function pointer\n${'warning: noise\n'.repeat(
+          3000
+        )}`,
+      },
+      []
+    );
+    expect(message.endsWith(`Errors:\n${swiftError}`)).toBe(true);
+    expect(message.length).toBeLessThan(4000);
+  });
+
   it('keeps the tail of long output after redaction', () => {
     const message = formatBuildError(
       'Building',

@@ -63,6 +63,15 @@ func ParseCertificate(data []byte, password string) (*Certificate, error) {
 	}, nil
 }
 
+// KeychainP12 re-encodes a PKCS#12 file with the legacy encryption, the only one the macOS keychain imports.
+func KeychainP12(data []byte, password string) ([]byte, error) {
+	privateKey, certificate, chain, err := pkcs12.DecodeChain(data, password)
+	if err != nil {
+		return nil, err
+	}
+	return pkcs12.LegacyDES.Encode(privateKey, certificate, chain, password)
+}
+
 // Fingerprint is the SHA-1 of a DER certificate as uppercase hex.
 func Fingerprint(der []byte) string {
 	sum := sha1.Sum(der)

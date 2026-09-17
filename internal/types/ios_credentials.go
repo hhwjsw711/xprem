@@ -16,6 +16,14 @@ const (
 	IosSigningCertificate IosSigningMode = "certificate"
 )
 
+// IosDistribution is how a signed iOS build reaches its devices.
+type IosDistribution string
+
+const (
+	IosDistributionAppStore IosDistribution = "app-store"
+	IosDistributionAdHoc    IosDistribution = "ad-hoc"
+)
+
 // IosDeviceRegistrationStatus is the outcome of registering an iPhone at Apple through a link.
 type IosDeviceRegistrationStatus string
 
