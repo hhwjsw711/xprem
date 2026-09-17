@@ -1,4 +1,5 @@
 import { ExpoConfig } from '@expo/config';
+import { spawnSync } from 'child_process';
 import { createHash, randomUUID } from 'crypto';
 import fg from 'fast-glob';
 import fs from 'fs-extra';
@@ -53,13 +54,14 @@ export async function withTemporaryDirectory<T>(
 }
 
 // Xcode tooling caches absolute paths of the project it builds, so one project always builds at one
-// path, which one build at a time may hold.
+// path. Builds that use it share the user's keychain search list and provisioning profiles, so one
+// runs at a time.
 async function claimStableDirectory(
   project: string
 ): Promise<{ directory: string; release: () => Promise<void> }> {
   const key = createHash('sha256').update(project).digest('hex').slice(0, 12);
   const directory = path.join(os.tmpdir(), `eoas-build-${key}`);
-  const release = await lockDirectory(directory);
+  const release = await lockDirectory(path.join(os.tmpdir(), 'eoas-ios-build'));
   try {
     await fs.remove(directory);
     await fs.ensureDir(directory);
@@ -70,16 +72,16 @@ async function claimStableDirectory(
   return { directory, release };
 }
 
-// Takes the lock of a directory and returns its release. The lock appears with its owner's pid
-// already inside, and the lock of a dead owner is only replaced by the one contender that wins the
-// takeover marker of that owner.
+// Takes the lock of a directory and returns its release. The lock and the takeover marker appear
+// with their owner already inside, and the lock of a dead owner is only replaced by the one
+// contender that wins the takeover marker of that owner.
 export async function lockDirectory(directory: string): Promise<() => Promise<void>> {
   const lock = `${directory}.lock`;
   const busy = new Error(
-    `Another build of this project is already running on this machine (${lock}).`
+    `Another iOS build is already running on this machine. If none is, delete ${lock}.`
   );
   const mine = `${lock}.${process.pid}.${randomUUID()}`;
-  await fs.writeFile(mine, String(process.pid));
+  await fs.writeFile(mine, processIdentity(process.pid) ?? String(process.pid));
   try {
     for (let attempt = 0; attempt < 5; attempt++) {
       try {
@@ -90,18 +92,18 @@ export async function lockDirectory(directory: string): Promise<() => Promise<vo
           throw error;
         }
       }
-      const owner = await pidIn(lock);
+      const owner = await ownerOf(lock);
       if (!owner) {
         continue;
       }
       if (isRunning(owner)) {
         throw busy;
       }
-      const takeover = `${lock}.takeover.${owner}`;
+      const takeover = `${lock}.takeover.${pidOf(owner)}`;
       try {
-        await fs.writeFile(takeover, String(process.pid), { flag: 'wx' });
+        await fs.link(mine, takeover);
       } catch {
-        const taker = await pidIn(takeover);
+        const taker = await ownerOf(takeover);
         if (taker && isRunning(taker)) {
           throw busy;
         }
@@ -110,7 +112,7 @@ export async function lockDirectory(directory: string): Promise<() => Promise<vo
       }
       try {
         // Another contender may have replaced this owner's lock before the marker was won.
-        if ((await pidIn(lock)) === owner) {
+        if ((await ownerOf(lock)) === owner) {
           await fs.rename(mine, lock);
           return () => fs.remove(lock);
         }
@@ -124,13 +126,30 @@ export async function lockDirectory(directory: string): Promise<() => Promise<vo
   }
 }
 
-async function pidIn(file: string): Promise<number> {
-  return Number(await fs.readFile(file, 'utf8').catch(() => ''));
+async function ownerOf(file: string): Promise<string> {
+  return (await fs.readFile(file, 'utf8').catch(() => '')).trim();
 }
 
-function isRunning(pid: number): boolean {
+function pidOf(owner: string): number {
+  return Number(owner.split(' ')[0]);
+}
+
+// A pid followed by the start time of its process, which a recycled pid does not share.
+function processIdentity(pid: number): string | undefined {
+  const { status, stdout } = spawnSync('ps', ['-p', String(pid), '-o', 'lstart='], {
+    encoding: 'utf8',
+    env: { ...process.env, LC_ALL: 'C' },
+  });
+  const started = status === 0 ? stdout.trim() : '';
+  return started ? `${pid} ${started}` : undefined;
+}
+
+function isRunning(owner: string): boolean {
+  if (owner.includes(' ')) {
+    return processIdentity(pidOf(owner)) === owner;
+  }
   try {
-    process.kill(pid, 0);
+    process.kill(pidOf(owner), 0);
     return true;
   } catch (error) {
     return (error as NodeJS.ErrnoException).code === 'EPERM';

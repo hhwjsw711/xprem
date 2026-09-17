@@ -4,10 +4,13 @@ import os from 'os';
 import path from 'path';
 import { afterEach, expect, it } from 'vitest';
 
-import { lockDirectory } from '../workspace';
+import { BuildLog } from '../log';
+import { lockDirectory, withTemporaryDirectory } from '../workspace';
 
 const directories: string[] = [];
+const systemTemporary = process.env.TMPDIR;
 afterEach(async () => {
+  process.env.TMPDIR = systemTemporary;
   await Promise.all(directories.splice(0).map(directory => fs.remove(directory)));
 });
 
@@ -46,6 +49,31 @@ it.each([
   );
   const winners = attempts.filter(attempt => attempt.status === 'fulfilled');
   expect(winners).toHaveLength(1);
-  expect(await fs.readFile(`${directory}.lock`, 'utf8')).toBe(String(process.pid));
+  expect(await fs.readFile(`${directory}.lock`, 'utf8')).toMatch(new RegExp(`^${process.pid} `));
   expect(await fs.readdir(path.dirname(directory))).toEqual(['build.lock']);
+});
+
+it('takes over the lock of a dead build whose pid now belongs to another process', async () => {
+  const directory = await target();
+  await fs.writeFile(`${directory}.lock`, `${process.pid} Thu Jan  1 00:00:00 1970`);
+  await (
+    await lockDirectory(directory)
+  )();
+});
+
+it('lets one build at a time use the stable directory, whatever the project', async () => {
+  const temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'eoas-lock-'));
+  directories.push(temporary);
+  process.env.TMPDIR = temporary;
+  const buildLog = {} as BuildLog;
+  await withTemporaryDirectory(
+    buildLog,
+    async () => {
+      await expect(
+        withTemporaryDirectory(buildLog, async () => {}, '/projects/other')
+      ).rejects.toThrow('Another iOS build is already running');
+    },
+    '/projects/one'
+  );
+  await withTemporaryDirectory(buildLog, async () => {}, '/projects/other');
 });
