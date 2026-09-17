@@ -163,7 +163,7 @@ func TestPrepareIosBuildCredentialsKeepsTheCertificateOfADisconnectedBuild(t *te
 	f.apple.AfterCertificateCreated = disconnect
 
 	_, err := f.service.PrepareIosBuildCredentials(disconnected, f.appId, identifierId, types.IosDistributionAppStore)
-	require.ErrorIs(t, err, context.Canceled)
+	require.ErrorContains(t, err, "context canceled", "the request stops at its next Apple call")
 
 	f.apple.AfterCertificateCreated = nil
 	_, err = f.service.PrepareIosBuildCredentials(context.Background(), f.appId, identifierId, types.IosDistributionAppStore)

@@ -10,7 +10,11 @@ import { lockDirectory, withTemporaryDirectory } from '../workspace';
 const directories: string[] = [];
 const systemTemporary = process.env.TMPDIR;
 afterEach(async () => {
-  process.env.TMPDIR = systemTemporary;
+  if (systemTemporary === undefined) {
+    delete process.env.TMPDIR;
+  } else {
+    process.env.TMPDIR = systemTemporary;
+  }
   await Promise.all(directories.splice(0).map(directory => fs.remove(directory)));
 });
 
