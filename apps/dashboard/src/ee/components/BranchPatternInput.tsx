@@ -8,19 +8,23 @@ import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { matchBranchPattern } from '@/ee/lib/branchPattern';
 
-// A branch name field that suggests the branches the app already has while
-// still accepting anything typed: a rule may name a branch that does not exist
-// yet, and a pattern like "pr-*" never will.
-export const BranchPatternInput = ({
+// A name field that suggests the names the app already has while still
+// accepting anything typed: a rule may name something that does not exist yet,
+// and a pattern like "pr-*" never will.
+export const NamePatternInput = ({
   value,
   onChange,
-  branches,
+  names,
+  noun,
+  placeholder,
   disabled,
   invalid,
 }: {
   value: string;
   onChange: (value: string) => void;
-  branches: string[];
+  names: string[];
+  noun: { one: string; many: string };
+  placeholder: string;
   disabled?: boolean;
   invalid?: boolean;
 }) => {
@@ -29,18 +33,18 @@ export const BranchPatternInput = ({
 
   const suggestions = useMemo(() => {
     const query = value.trim().toLowerCase();
-    return branches
-      .filter(branch => branch.toLowerCase() !== query)
-      .filter(branch => !query || branch.toLowerCase().includes(query))
+    return names
+      .filter(name => name.toLowerCase() !== query)
+      .filter(name => !query || name.toLowerCase().includes(query))
       .slice(0, 8);
-  }, [branches, value]);
+  }, [names, value]);
 
   // What the pattern covers right now. Only shown for a wildcard: for a plain
   // name the field already says it, and repeating it would be noise.
   const matched = useMemo(() => {
     if (!value.includes('*')) return null;
-    return branches.filter(branch => matchBranchPattern(value, branch));
-  }, [branches, value]);
+    return names.filter(name => matchBranchPattern(value, name));
+  }, [names, value]);
 
   return (
     <div
@@ -57,14 +61,14 @@ export const BranchPatternInput = ({
         onFocus={() => setIsOpen(true)}
         disabled={disabled}
         spellCheck={false}
-        placeholder="production, or pr-*"
+        placeholder={placeholder}
         aria-invalid={invalid}
         className={cn('font-mono text-xs', invalid && 'border-destructive')}
       />
       {isOpen && suggestions.length > 0 && (
         <ul className="absolute z-50 mt-1 max-h-48 w-full overflow-y-auto rounded-md border bg-popover p-1 shadow-md">
-          {suggestions.map(branch => (
-            <li key={branch}>
+          {suggestions.map(name => (
+            <li key={name}>
               <button
                 type="button"
                 className="w-full rounded-sm px-2 py-1.5 text-left font-mono text-xs hover:bg-accent hover:text-accent-foreground"
@@ -72,10 +76,10 @@ export const BranchPatternInput = ({
                   if (blurTimer.current) window.clearTimeout(blurTimer.current);
                 }}
                 onClick={() => {
-                  onChange(branch);
+                  onChange(name);
                   setIsOpen(false);
                 }}>
-                {branch}
+                {name}
               </button>
             </li>
           ))}
@@ -84,8 +88,8 @@ export const BranchPatternInput = ({
       {matched !== null && (
         <p className="mt-1 text-xs text-muted-foreground">
           {matched.length === 0
-            ? 'Matches no branch today. It still applies to branches created later.'
-            : `Matches ${matched.length} branch${matched.length > 1 ? 'es' : ''}: ${matched
+            ? `Matches no ${noun.one} today. It still applies to ${noun.many} created later.`
+            : `Matches ${matched.length} ${matched.length > 1 ? noun.many : noun.one}: ${matched
                 .slice(0, 4)
                 .join(', ')}${matched.length > 4 ? `, and ${matched.length - 4} more` : ''}`}
         </p>
@@ -93,3 +97,21 @@ export const BranchPatternInput = ({
     </div>
   );
 };
+
+export const BranchPatternInput = ({
+  branches,
+  ...props
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  branches: string[];
+  disabled?: boolean;
+  invalid?: boolean;
+}) => (
+  <NamePatternInput
+    {...props}
+    names={branches}
+    noun={{ one: 'branch', many: 'branches' }}
+    placeholder="production, or pr-*"
+  />
+);

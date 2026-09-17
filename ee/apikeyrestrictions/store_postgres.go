@@ -65,6 +65,8 @@ func (s *PostgresApiKeyAccessStore) GetAccess(ctx context.Context, appID string,
 				Destination:     SubmitDestination(row.Destination),
 				Actions:         toSubmitActions(row.Actions),
 			})
+		case "environments":
+			access.EnvironmentRules = append(access.EnvironmentRules, EnvironmentRule{Pattern: row.Pattern})
 		}
 	}
 	return access, nil
@@ -98,6 +100,15 @@ func (s *PostgresApiKeyAccessStore) GetAccessByAppID(ctx context.Context, appID 
 	for _, row := range submitRows {
 		if access := byID[row.ApiKeyID]; access != nil {
 			access.SubmitRules = append(access.SubmitRules, SubmitRule{AppIdentifierID: row.AppIdentifierID.String(), Destination: SubmitDestination(row.Destination), Actions: toSubmitActions(row.Actions)})
+		}
+	}
+	environmentRows, err := s.engine.Queries.GetApiKeyEnvironmentRulesByAppID(ctx, store.ToPgUUID(appID))
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range environmentRows {
+		if access := byID[row.ApiKeyID]; access != nil {
+			access.EnvironmentRules = append(access.EnvironmentRules, EnvironmentRule{Pattern: row.Pattern})
 		}
 	}
 	return result, nil
@@ -183,6 +194,14 @@ func (s *PostgresApiKeyAccessStore) SetAccess(ctx context.Context, appID string,
 			if err := q.InsertApiKeySubmitRule(ctx, pgdb.InsertApiKeySubmitRuleParams{
 				ApiKeyID: access.ApiKeyID, AppID: store.ToPgUUID(appID), AppIdentifierID: store.ToPgUUID(rule.AppIdentifierID), Destination: string(rule.Destination), Actions: fromSubmitActions(rule.Actions),
 			}); err != nil {
+				return err
+			}
+		}
+		if err := q.DeleteApiKeyEnvironmentRules(ctx, access.ApiKeyID); err != nil {
+			return err
+		}
+		for _, rule := range access.EnvironmentRules {
+			if err := q.InsertApiKeyEnvironmentRule(ctx, pgdb.InsertApiKeyEnvironmentRuleParams{ApiKeyID: access.ApiKeyID, Pattern: rule.Pattern}); err != nil {
 				return err
 			}
 		}

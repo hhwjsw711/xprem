@@ -14,14 +14,21 @@ import (
 )
 
 type BuildHandler struct {
-	environments   *services.EnvironmentService
-	credentials    *services.CredentialsService
-	iosCredentials *services.IosCredentialsService
-	identifiers    *services.AppIdentifierService
+	// authorizeEnvironment judges the environment a request resolved to; nil allows every environment.
+	authorizeEnvironment func(r *http.Request, environment string) error
+	environments         *services.EnvironmentService
+	credentials          *services.CredentialsService
+	iosCredentials       *services.IosCredentialsService
+	identifiers          *services.AppIdentifierService
 }
 
 func NewBuildHandler(environments *services.EnvironmentService, credentials *services.CredentialsService, iosCredentials *services.IosCredentialsService, identifiers *services.AppIdentifierService) *BuildHandler {
 	return &BuildHandler{environments: environments, credentials: credentials, iosCredentials: iosCredentials, identifiers: identifiers}
+}
+
+// SetEnvironmentAuthorizer plugs the per-key environment access check. Nil-safe.
+func (h *BuildHandler) SetEnvironmentAuthorizer(authorize func(r *http.Request, environment string) error) {
+	h.authorizeEnvironment = authorize
 }
 
 func RenderBuildInputError(w http.ResponseWriter, err error) {
@@ -53,7 +60,15 @@ func (h *BuildHandler) Environment(w http.ResponseWriter, r *http.Request) {
 		RenderBuildInputError(w, err)
 		return
 	}
-	environment, err := h.environments.ExportVariables(r.Context(), mux.Vars(r)["APP_ID"], query["channel"], query["environment"])
+	var authorize func(environment string) error
+	if h.authorizeEnvironment != nil {
+		authorize = func(environment string) error { return h.authorizeEnvironment(r, environment) }
+	}
+	environment, err := h.environments.ExportVariables(r.Context(), mux.Vars(r)["APP_ID"], query["channel"], query["environment"], authorize)
+	if errors.Is(err, services.ErrCliAccessDenied) || errors.Is(err, services.ErrCliAuthUnavailable) {
+		RenderCliAuthError(w, err)
+		return
+	}
 	if err != nil {
 		RenderBuildInputError(w, err)
 		return

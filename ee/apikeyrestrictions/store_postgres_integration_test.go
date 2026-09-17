@@ -252,7 +252,7 @@ func TestAuthorizeUpdatesAgainstPostgres(t *testing.T) {
 			{Pattern: "staging", Actions: []UpdateAction{UpdateActionPublish}},
 		},
 		[]string{"10.0.0.0/8"}, nil,
-		nil))
+		nil, nil))
 
 	request := func(branch string, action UpdateAction, ip string) UpdateRequest {
 		return UpdateRequest{
@@ -397,4 +397,34 @@ func TestNativeRulesRejectOtherAppsAndPlatformsAtomically(t *testing.T) {
 	assert.Empty(t, actual.SubmitRules)
 	require.NoError(t, service.AuthorizeBuild(ctx, buildRequest))
 	require.NoError(t, service.AuthorizeSubmit(ctx, submitRequest))
+}
+
+func TestEnvironmentRulesAgainstPostgres(t *testing.T) {
+	store, pool := setupAccessStore(t)
+	ctx := context.Background()
+	appID := insertTestApp(t, pool)
+	apiKeyID := insertTestApiKey(t, pool, appID, "ci-staging")
+	service := serviceWith(store, true)
+	request := func(environment string) EnvironmentRequest {
+		return EnvironmentRequest{APIKeyContext: APIKeyContext{AppID: appID, APIKeyID: apiKeyID, ClientIP: netip.MustParseAddr("10.1.2.3")}, Environment: environment}
+	}
+
+	require.NoError(t, service.AuthorizeEnvironment(ctx, request("production")), "a key without rules reads every environment")
+
+	require.NoError(t, service.SetAccess(ctx, appID, apiKeyID, nil, nil, nil, nil,
+		[]EnvironmentRule{{Pattern: "staging"}, {Pattern: "preview-*"}}))
+	access, err := store.GetAccess(ctx, appID, apiKeyID)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []EnvironmentRule{{Pattern: "staging"}, {Pattern: "preview-*"}}, access.EnvironmentRules)
+	listed, err := store.GetAccessByAppID(ctx, appID)
+	require.NoError(t, err)
+	require.Len(t, listed, 1)
+	assert.ElementsMatch(t, access.EnvironmentRules, listed[0].EnvironmentRules)
+
+	require.NoError(t, service.AuthorizeEnvironment(ctx, request("preview-42")))
+	require.ErrorIs(t, service.AuthorizeEnvironment(ctx, request("production")), services.ErrCliAccessDenied)
+
+	require.NoError(t, service.SetAccess(ctx, appID, apiKeyID, nil, nil, nil, nil, []EnvironmentRule{{Pattern: "production"}}))
+	require.NoError(t, service.AuthorizeEnvironment(ctx, request("production")))
+	require.ErrorIs(t, service.AuthorizeEnvironment(ctx, request("staging")), services.ErrCliAccessDenied, "rules are replaced, not merged")
 }

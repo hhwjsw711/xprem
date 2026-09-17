@@ -21,17 +21,18 @@ import (
 // The management API replaces a whole policy. Old or partial payloads must
 // never silently erase permissions when a dashboard stays open across deploys.
 func TestAccessPayloadRoundTrip(t *testing.T) {
-	const policy = `{"updates":{"rules":[{"pattern":"staging","actions":["publish"]}]},"build":{"rules":[]},"submit":{"rules":[]},"allowedIps":[]}`
+	const policy = `{"updates":{"rules":[{"pattern":"staging","actions":["publish"]}]},"build":{"rules":[]},"submit":{"rules":[]},"environments":{"rules":[{"pattern":"staging-*"}]},"allowedIps":[]}`
 	cases := []struct {
 		name, body string
 		status     int
 	}{
 		{"explicit policy", policy, http.StatusNoContent},
-		{"native policy", `{"updates":{"rules":[]},"build":{"rules":[{"appIdentifierId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","actions":["create"]}]},"submit":{"rules":[{"appIdentifierId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","destination":"internal","actions":["upload"]}]},"allowedIps":[]}`, http.StatusNoContent},
+		{"native policy", `{"updates":{"rules":[]},"build":{"rules":[{"appIdentifierId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","actions":["create"]}]},"submit":{"rules":[{"appIdentifierId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","destination":"internal","actions":["upload"]}]},"environments":{"rules":[]},"allowedIps":[]}`, http.StatusNoContent},
 		{"previous flat build shape", `{"updates":{"branchRules":[]},"build":{"actions":["create"]},"allowedIps":[]}`, http.StatusBadRequest},
 		{"missing submit", `{"updates":{"rules":[]},"build":{"rules":[]},"allowedIps":[]}`, http.StatusBadRequest},
 		{"null submit", `{"updates":{"rules":[]},"build":{"rules":[]},"submit":{"rules":null},"allowedIps":[]}`, http.StatusBadRequest},
-		{"no access", `{"updates":{"rules":[]},"build":{"rules":[]},"submit":{"rules":[]},"allowedIps":[]}`, http.StatusNoContent},
+		{"no access", `{"updates":{"rules":[]},"build":{"rules":[]},"submit":{"rules":[]},"environments":{"rules":[]},"allowedIps":[]}`, http.StatusNoContent},
+		{"missing environments", `{"updates":{"rules":[]},"build":{"rules":[]},"submit":{"rules":[]},"allowedIps":[]}`, http.StatusBadRequest},
 		{"old shape", `{"branchRules":[],"allowedIps":[]}`, http.StatusBadRequest},
 		{"missing group", `{"updates":{"rules":[]},"allowedIps":[]}`, http.StatusBadRequest},
 		{"missing rules", `{"updates":{},"build":{"rules":[]},"submit":{"rules":[]},"allowedIps":[]}`, http.StatusBadRequest},
@@ -80,7 +81,7 @@ func TestAccessCacheRefreshesAfterPermissionChanges(t *testing.T) {
 	assert.Equal(t, initial, read())
 	require.Equal(t, 1, repo.getCalls, "second request should use the cache")
 	require.NoError(t, service.SetAccess(context.Background(), appID, 42,
-		[]UpdateRule{{Pattern: "staging", Actions: []UpdateAction{UpdateActionPublish}}}, nil, nil, nil))
+		[]UpdateRule{{Pattern: "staging", Actions: []UpdateAction{UpdateActionPublish}}}, nil, nil, nil, nil))
 	repo.access[42] = repo.setAccess
 	refreshed := read()
 	assert.Contains(t, refreshed, "staging")

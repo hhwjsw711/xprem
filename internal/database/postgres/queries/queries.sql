@@ -973,6 +973,10 @@ WITH active_key AS (
     JOIN app_identifiers i ON i.id = r.app_identifier_id AND i.app_id = k.app_id
     WHERE (i.platform = 'android' AND r.destination IN ('internal', 'alpha', 'beta', 'production'))
        OR (i.platform = 'ios' AND r.destination = 'testflight')
+    UNION ALL
+    SELECT 'environments'::TEXT, r.pattern, NULL::UUID, ''::TEXT, ARRAY[]::TEXT[]
+    FROM api_key_environment_rules r
+    JOIN active_key k ON k.id = r.api_key_id
 )
 SELECT k.allowed_ips, COALESCE(r.domain, '')::TEXT AS domain,
        COALESCE(r.pattern, '')::TEXT AS pattern, r.app_identifier_id,
@@ -2729,6 +2733,19 @@ WHERE r.app_id = $1 AND k.revoked_at IS NULL
   AND ((i.platform = 'android' AND r.destination IN ('internal', 'alpha', 'beta', 'production'))
     OR (i.platform = 'ios' AND r.destination = 'testflight'))
 ORDER BY r.api_key_id, r.app_identifier_id, r.destination;
+
+-- name: GetApiKeyEnvironmentRulesByAppID :many
+SELECT r.api_key_id, r.pattern
+FROM api_key_environment_rules r JOIN api_keys k ON k.id = r.api_key_id
+WHERE k.app_id = $1 AND k.revoked_at IS NULL
+ORDER BY r.api_key_id, r.pattern;
+
+-- name: DeleteApiKeyEnvironmentRules :exec
+DELETE FROM api_key_environment_rules WHERE api_key_id = $1;
+
+-- name: InsertApiKeyEnvironmentRule :exec
+INSERT INTO api_key_environment_rules (api_key_id, pattern)
+VALUES ($1, $2);
 
 -- name: DeleteApiKeyBuildRules :exec
 DELETE FROM api_key_build_rules WHERE api_key_id = $1;

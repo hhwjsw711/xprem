@@ -32,7 +32,8 @@ func TestAccessChangesEmitAuditEvents(t *testing.T) {
 		[]UpdateRule{{Pattern: "pr-*", Actions: []UpdateAction{UpdateActionPublish, UpdateActionRead}}},
 		[]string{"10.0.0.5/8"},
 		[]BuildRule{{AppIdentifierID: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA", Actions: []BuildAction{BuildActionCreate, BuildActionCreate}}},
-		[]SubmitRule{{AppIdentifierID: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA", Destination: SubmitDestinationInternal, Actions: []SubmitAction{SubmitActionUpload}}}))
+		[]SubmitRule{{AppIdentifierID: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA", Destination: SubmitDestinationInternal, Actions: []SubmitAction{SubmitActionUpload}}},
+		[]EnvironmentRule{{Pattern: "staging-**"}}))
 	require.Len(t, recorder.events, 1)
 	restricted := recorder.events[0]
 	assert.Equal(t, auditlog.ActionAPIKeyRestrictionsUpdated, restricted.Action)
@@ -43,10 +44,11 @@ func TestAccessChangesEmitAuditEvents(t *testing.T) {
 	assert.Equal(t, "app-1", restricted.AppID)
 	// Rules land in the form the dashboard shows, and in catalog order.
 	assert.Equal(t, map[string]any{
-		"update_rules":  []string{"pr-*:read+publish"},
-		"build_rules":   []string{"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa:create"},
-		"submit_rules":  []string{"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa:internal:upload"},
-		"allowed_cidrs": []string{"10.0.0.0/8"},
+		"update_rules":      []string{"pr-*:read+publish"},
+		"build_rules":       []string{"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa:create"},
+		"submit_rules":      []string{"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa:internal:upload"},
+		"environment_rules": []string{"staging-*"},
+		"allowed_cidrs":     []string{"10.0.0.0/8"},
 	}, restricted.Metadata)
 
 }
@@ -56,7 +58,7 @@ func TestUnlicensedAccessChangesEmitNothing(t *testing.T) {
 	recorder := &fakeAuditRecorder{}
 	service.SetOnAuditEvent(recorder.Record)
 
-	err := service.SetAccess(context.Background(), "app-1", 42, nil, nil, nil, nil)
+	err := service.SetAccess(context.Background(), "app-1", 42, nil, nil, nil, nil, nil)
 	require.ErrorIs(t, err, ErrRequiresValidLicense)
 	require.Empty(t, recorder.events)
 }

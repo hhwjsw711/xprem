@@ -45,6 +45,11 @@ type ApiKeyBuildRule struct {
 	Actions         []string    `json:"actions"`
 }
 
+type ApiKeyEnvironmentRule struct {
+	ApiKeyID int64  `json:"api_key_id"`
+	Pattern  string `json:"pattern"`
+}
+
 type ApiKeySubmitRule struct {
 	ApiKeyID        int64       `json:"api_key_id"`
 	AppID           pgtype.UUID `json:"app_id"`

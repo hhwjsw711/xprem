@@ -80,7 +80,7 @@ func TestStatelessModeAnswersControlPlaneError(t *testing.T) {
 	if _, err := service.GetAccessByApp(context.Background(), "app"); !errors.Is(err, ErrRequiresControlPlane) {
 		t.Fatalf("expected ErrRequiresControlPlane, got %v", err)
 	}
-	if err := service.SetAccess(context.Background(), "app", 1, nil, nil, nil, nil); !errors.Is(err, ErrRequiresControlPlane) {
+	if err := service.SetAccess(context.Background(), "app", 1, nil, nil, nil, nil, nil); !errors.Is(err, ErrRequiresControlPlane) {
 		t.Fatalf("expected ErrRequiresControlPlane, got %v", err)
 	}
 	// Enforcement is a no-op in stateless mode, never an error.
@@ -92,7 +92,7 @@ func TestStatelessModeAnswersControlPlaneError(t *testing.T) {
 func TestMutationsRequireValidLicense(t *testing.T) {
 	repo := &fakeAccessRepo{}
 	service := serviceWith(repo, false)
-	if err := service.SetAccess(context.Background(), "app", 1, nil, nil, nil, nil); !errors.Is(err, ErrRequiresValidLicense) {
+	if err := service.SetAccess(context.Background(), "app", 1, nil, nil, nil, nil, nil); !errors.Is(err, ErrRequiresValidLicense) {
 		t.Fatalf("expected ErrRequiresValidLicense, got %v", err)
 	}
 	if repo.setCalls != 0 {
@@ -120,7 +120,7 @@ func TestSetAccessPersistsNormalizedInput(t *testing.T) {
 	err := service.SetAccess(context.Background(), "app", 1,
 		[]UpdateRule{{Pattern: "staging", Actions: []UpdateAction{UpdateActionRollback, UpdateActionRead}}},
 		[]string{"192.168.1.5/24", "::ffff:10.1.2.3"}, nil,
-		nil)
+		nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -142,13 +142,13 @@ func TestSetAccessRejectsInvalidInput(t *testing.T) {
 	repo := &fakeAccessRepo{}
 	service := serviceWith(repo, true)
 
-	err := service.SetAccess(context.Background(), "app", 1, nil, []string{"not-an-ip"}, nil, nil)
+	err := service.SetAccess(context.Background(), "app", 1, nil, []string{"not-an-ip"}, nil, nil, nil)
 	if !errors.Is(err, ErrInvalidCidr) {
 		t.Fatalf("expected ErrInvalidCidr, got %v", err)
 	}
 	// A malformed rule must also surface as a validation error, not a 500.
 	err = service.SetAccess(context.Background(), "app", 1,
-		[]UpdateRule{{Pattern: "feature/x", Actions: []UpdateAction{UpdateActionRead}}}, nil, nil, nil)
+		[]UpdateRule{{Pattern: "feature/x", Actions: []UpdateAction{UpdateActionRead}}}, nil, nil, nil, nil)
 	if !validation.IsValidationError(err) {
 		t.Fatalf("expected a validation error, got %v", err)
 	}
@@ -161,7 +161,7 @@ func TestSetAccessRejectsInvalidInput(t *testing.T) {
 func TestSetAccessEmptyAllowlistIsNil(t *testing.T) {
 	repo := &fakeAccessRepo{}
 	service := serviceWith(repo, true)
-	if err := service.SetAccess(context.Background(), "app", 1, nil, []string{"", "  "}, nil, nil); err != nil {
+	if err := service.SetAccess(context.Background(), "app", 1, nil, []string{"", "  "}, nil, nil, nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if repo.setAccess.AllowedIps != nil {
@@ -214,7 +214,7 @@ func TestAuthorizeMatchesAllowlistEnteredInMappedForm(t *testing.T) {
 	service := serviceWith(repo, true)
 	err := service.SetAccess(context.Background(), "app", 1, nil,
 		[]string{"::ffff:203.0.113.7", "::ffff:10.0.0.0/104"}, nil,
-		nil)
+		nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

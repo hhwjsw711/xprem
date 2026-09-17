@@ -38,14 +38,18 @@ type buildAccessPayload struct {
 type submitAccessPayload struct {
 	Rules []SubmitRule `json:"rules"`
 }
+type environmentsAccessPayload struct {
+	Rules []EnvironmentRule `json:"rules"`
+}
 
 // ApiKeyAccessResponse keeps each permission domain and its resource rules explicit.
 type ApiKeyAccessResponse struct {
-	ApiKeyID   string               `json:"apiKeyId"`
-	Updates    updatesAccessPayload `json:"updates"`
-	Build      buildAccessPayload   `json:"build"`
-	Submit     submitAccessPayload  `json:"submit"`
-	AllowedIps []string             `json:"allowedIps"`
+	ApiKeyID     string                    `json:"apiKeyId"`
+	Updates      updatesAccessPayload      `json:"updates"`
+	Build        buildAccessPayload        `json:"build"`
+	Submit       submitAccessPayload       `json:"submit"`
+	Environments environmentsAccessPayload `json:"environments"`
+	AllowedIps   []string                  `json:"allowedIps"`
 }
 
 func renderApiKeyAccessServiceError(w http.ResponseWriter, err error) {
@@ -84,11 +88,12 @@ func (h *ApiKeyAccessHandler) GetApiKeyAccessHandler(w http.ResponseWriter, r *h
 	response := make([]ApiKeyAccessResponse, 0, len(accesses))
 	for _, access := range accesses {
 		entry := ApiKeyAccessResponse{
-			ApiKeyID:   strconv.FormatInt(access.ApiKeyID, 10),
-			Updates:    updatesAccessPayload{Rules: append([]UpdateRule{}, access.UpdateRules...)},
-			Build:      buildAccessPayload{Rules: append([]BuildRule{}, access.BuildRules...)},
-			Submit:     submitAccessPayload{Rules: append([]SubmitRule{}, access.SubmitRules...)},
-			AllowedIps: []string{},
+			ApiKeyID:     strconv.FormatInt(access.ApiKeyID, 10),
+			Updates:      updatesAccessPayload{Rules: append([]UpdateRule{}, access.UpdateRules...)},
+			Build:        buildAccessPayload{Rules: append([]BuildRule{}, access.BuildRules...)},
+			Submit:       submitAccessPayload{Rules: append([]SubmitRule{}, access.SubmitRules...)},
+			Environments: environmentsAccessPayload{Rules: append([]EnvironmentRule{}, access.EnvironmentRules...)},
+			AllowedIps:   []string{},
 		}
 		for _, prefix := range access.AllowedIps {
 			entry.AllowedIps = append(entry.AllowedIps, prefix.String())
@@ -112,10 +117,11 @@ func (h *ApiKeyAccessHandler) SetApiKeyAccessHandler(w http.ResponseWriter, r *h
 		return
 	}
 	var req struct {
-		Updates    *updatesAccessPayload `json:"updates"`
-		Build      *buildAccessPayload   `json:"build"`
-		Submit     *submitAccessPayload  `json:"submit"`
-		AllowedIps []string              `json:"allowedIps"`
+		Updates      *updatesAccessPayload      `json:"updates"`
+		Build        *buildAccessPayload        `json:"build"`
+		Submit       *submitAccessPayload       `json:"submit"`
+		Environments *environmentsAccessPayload `json:"environments"`
+		AllowedIps   []string                   `json:"allowedIps"`
 	}
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxAccessBodyBytes))
 	decoder.DisallowUnknownFields()
@@ -124,15 +130,15 @@ func (h *ApiKeyAccessHandler) SetApiKeyAccessHandler(w http.ResponseWriter, r *h
 		return
 	}
 	// Reject stale/partial payloads rather than silently clearing either domain.
-	if req.Updates == nil || req.Build == nil || req.Submit == nil || req.Updates.Rules == nil || req.Build.Rules == nil || req.Submit.Rules == nil || req.AllowedIps == nil {
-		handlers.RenderError(w, http.StatusBadRequest, "updates.rules, build.rules, submit.rules and allowedIps must be provided as arrays")
+	if req.Updates == nil || req.Build == nil || req.Submit == nil || req.Environments == nil || req.Updates.Rules == nil || req.Build.Rules == nil || req.Submit.Rules == nil || req.Environments.Rules == nil || req.AllowedIps == nil {
+		handlers.RenderError(w, http.StatusBadRequest, "updates.rules, build.rules, submit.rules, environments.rules and allowedIps must be provided as arrays")
 		return
 	}
 	if err := decoder.Decode(new(any)); err != io.EOF {
 		handlers.RenderError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	if err := h.service.SetAccess(r.Context(), appId, apiKeyID, req.Updates.Rules, req.AllowedIps, req.Build.Rules, req.Submit.Rules); err != nil {
+	if err := h.service.SetAccess(r.Context(), appId, apiKeyID, req.Updates.Rules, req.AllowedIps, req.Build.Rules, req.Submit.Rules, req.Environments.Rules); err != nil {
 		renderApiKeyAccessServiceError(w, err)
 		return
 	}

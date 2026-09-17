@@ -17,7 +17,7 @@ func TestSubmitRulesKeepIdentifiersDestinationsAndActionsSeparate(t *testing.T) 
 	const id = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 	repo := &fakeAccessRepo{}
 	err := serviceWith(repo, true).SetAccess(context.Background(), "app", 42, nil, nil, nil,
-		[]SubmitRule{{AppIdentifierID: strings.ToUpper(id), Destination: SubmitDestinationTestFlight, Actions: []SubmitAction{SubmitActionUpload, SubmitActionUpload}}})
+		[]SubmitRule{{AppIdentifierID: strings.ToUpper(id), Destination: SubmitDestinationTestFlight, Actions: []SubmitAction{SubmitActionUpload, SubmitActionUpload}}}, nil)
 	require.NoError(t, err)
 	require.Equal(t, []SubmitAction{SubmitActionUpload}, repo.setAccess.SubmitRules[0].Actions)
 	submit := repo.setAccess.SubmitRules[0]
@@ -56,7 +56,7 @@ func TestSetAccessRejectsInvalidSubmitRulesBeforeWriting(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			repo := &fakeAccessRepo{}
-			err := serviceWith(repo, true).SetAccess(context.Background(), "app", 42, nil, nil, nil, tc.rules)
+			err := serviceWith(repo, true).SetAccess(context.Background(), "app", 42, nil, nil, nil, tc.rules, nil)
 			require.Error(t, err)
 			assert.Zero(t, repo.setCalls)
 		})

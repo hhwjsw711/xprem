@@ -16,6 +16,7 @@ import {
   SubmitRuleRecord,
   SubmitDestination,
   AppIdentifier,
+  EnvironmentRuleRecord,
   UpdateRuleRecord,
   describeApiError,
 } from '@/lib/api';
@@ -31,10 +32,10 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet';
 import { EnterpriseFeatureGate } from '@/ee/components/EnterpriseFeatureGate';
-import { BranchPatternInput } from '@/ee/components/BranchPatternInput';
+import { BranchPatternInput, NamePatternInput } from '@/ee/components/BranchPatternInput';
 import { cn } from '@/lib/utils';
 
-// Edit Updates rules, Build permissions and source IPs independently.
+// Edit Updates rules, Build, Submit and Environment permissions and source IPs independently.
 // Without a valid license the form is masked by EnterpriseFeatureGate.
 export const ApiKeyAccessSheet = ({
   apiKey,
@@ -57,7 +58,8 @@ export const ApiKeyAccessSheet = ({
         <SheetHeader>
           <SheetTitle>Token access</SheetTitle>
           <SheetDescription>
-            Choose what “{apiKey?.name}” can do in Updates, Build and Submit.
+            Choose what “{apiKey?.name}” can do in Updates, Build and Submit, and which
+            environments it can read.
           </SheetDescription>
         </SheetHeader>
         <div className="mt-6">
@@ -136,6 +138,18 @@ const AccessForm = ({
   const [rules, setRules] = useState<UpdateRuleRecord[]>(initialRules);
   const [buildRules, setBuildRules] = useState<BuildRuleRecord[]>(initialAccess?.build.rules ?? []);
   const [submitRules, setSubmitRules] = useState<SubmitRuleRecord[]>(initialAccess?.submit.rules ?? []);
+  const [environmentRules, setEnvironmentRules] = useState<EnvironmentRuleRecord[]>(
+    initialAccess?.environments.rules ?? []
+  );
+  const [environmentsMode, setEnvironmentsMode] = useState<'all' | 'custom'>(
+    environmentRules.length === 0 ? 'all' : 'custom'
+  );
+  const environmentsQuery = useQuery({
+    queryKey: ['environments', selectedAppId],
+    queryFn: () => api.getEnvironments(),
+    enabled: !!selectedAppId,
+  });
+  const environments = (environmentsQuery.data ?? []).map(environment => environment.name);
   const identifiersQuery = useQuery({
     queryKey: ['identifiers', selectedAppId],
     queryFn: () => api.getAppIdentifiers(),
@@ -169,6 +183,20 @@ const AccessForm = ({
         const key = rule.appIdentifierId + ('destination' in rule ? ':' + rule.destination : '');
         if (seen.has(key)) return `${domain}: merge duplicate rules.`;
         seen.add(key);
+      }
+    }
+    if (environmentsMode === 'custom') {
+      if (environmentRules.length === 0) return 'Add at least one environment, or choose Every environment.';
+      const seenEnvironments = new Set<string>();
+      for (const rule of environmentRules) {
+        const pattern = rule.pattern.trim();
+        if (!pattern) return 'Every environment rule needs a name or a pattern.';
+        if (pattern.includes('/') || pattern.includes('\\')) {
+          return `“${pattern}” cannot contain a slash: an environment name is a single segment.`;
+        }
+        const collapsed = pattern.replace(/\*+/g, '*');
+        if (seenEnvironments.has(collapsed)) return `“${pattern}” appears twice in Environments.`;
+        seenEnvironments.add(collapsed);
       }
     }
     if (updatesMode !== 'custom') return null;
@@ -214,6 +242,12 @@ const AccessForm = ({
         },
         build: { rules: buildRules },
         submit: { rules: submitRules },
+        environments: {
+          rules:
+            environmentsMode === 'custom'
+              ? environmentRules.map(rule => ({ pattern: rule.pattern.trim() }))
+              : [],
+        },
         allowedIps,
       });
       queryClient.invalidateQueries({ queryKey: ['apiKeyAccess', selectedAppId] });
@@ -342,6 +376,69 @@ const AccessForm = ({
             rules={submitRules} onChange={setSubmitRules} disabled={isSaving}
           />
         </>
+      )}
+
+      <div className="space-y-2">
+        <p className="text-sm font-medium">Environments</p>
+        <div className="grid gap-2">
+          <ScopeChoice
+            selected={environmentsMode === 'all'}
+            onSelect={() => setEnvironmentsMode('all')}
+            title="Every environment"
+            description="The token can read the variables of any environment of this app."
+          />
+          <ScopeChoice
+            selected={environmentsMode === 'custom'}
+            onSelect={() => {
+              setEnvironmentsMode('custom');
+              if (environmentRules.length === 0) setEnvironmentRules([{ pattern: '' }]);
+            }}
+            title="Only the environments I list"
+            description="Anything not listed is refused, including environments created later."
+          />
+        </div>
+      </div>
+
+      {environmentsMode === 'custom' && (
+        <div className="space-y-3">
+          {environmentRules.map((rule, index) => (
+            <div key={index} className="flex items-start gap-2">
+              <div className="min-w-0 flex-1">
+                <NamePatternInput
+                  value={rule.pattern}
+                  onChange={pattern =>
+                    setEnvironmentRules(current =>
+                      current.map((entry, i) => (i === index ? { pattern } : entry))
+                    )
+                  }
+                  names={environments}
+                  noun={{ one: 'environment', many: 'environments' }}
+                  placeholder="staging, or preview-*"
+                  disabled={isSaving}
+                />
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-9 w-9 shrink-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                title="Remove this environment"
+                disabled={isSaving}
+                onClick={() =>
+                  setEnvironmentRules(current => current.filter((_, i) => i !== index))
+                }>
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </div>
+          ))}
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={isSaving}
+            onClick={() => setEnvironmentRules(current => [...current, { pattern: '' }])}>
+            <Plus className="mr-1.5 h-3.5 w-3.5" />
+            Add an environment
+          </Button>
+        </div>
       )}
 
       <div className="space-y-2">

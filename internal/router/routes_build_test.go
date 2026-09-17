@@ -61,8 +61,14 @@ func (repo *buildIdentifierRepo) GetAppIdentifierByPlatformAndIdentifier(_ conte
 }
 
 type recordingBuildPolicy struct {
-	requests []apikeyrestrictions.BuildRequest
-	err      error
+	requests     []apikeyrestrictions.BuildRequest
+	environments []apikeyrestrictions.EnvironmentRequest
+	err          error
+}
+
+func (p *recordingBuildPolicy) AuthorizeEnvironment(_ context.Context, req apikeyrestrictions.EnvironmentRequest) error {
+	p.environments = append(p.environments, req)
+	return p.err
 }
 
 func (p *recordingBuildPolicy) AuthorizeBuild(_ context.Context, req apikeyrestrictions.BuildRequest) error {
@@ -581,4 +587,25 @@ func TestBuildLocalUploadRequiresBothTokensAndBuildPermission(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestEnvironmentAuthorizerJudgesWithTheAuthenticatedKey(t *testing.T) {
+	policy := &recordingBuildPolicy{}
+	authorize := environmentAuthorizer(policy)
+	request := httptest.NewRequest("GET", "/", nil)
+	request.RemoteAddr = "203.0.113.7:4242"
+
+	require.ErrorIs(t, authorize(request, "production"), services.ErrUnauthorized, "a request the guard did not authenticate is refused")
+	require.Empty(t, policy.environments)
+
+	authenticated := request.WithContext(services.WithCliAuth(request.Context(), services.CliCredential{AppID: "app-1", KeyID: 42}))
+	require.NoError(t, authorize(authenticated, "production"))
+	require.Len(t, policy.environments, 1)
+	require.Equal(t, "production", policy.environments[0].Environment)
+	require.Equal(t, "app-1", policy.environments[0].AppID)
+	require.EqualValues(t, 42, policy.environments[0].APIKeyID)
+	require.Equal(t, "203.0.113.7", policy.environments[0].ClientIP.String())
+
+	policy.err = services.ErrCliAccessDenied
+	require.ErrorIs(t, authorize(authenticated, "production"), services.ErrCliAccessDenied)
 }

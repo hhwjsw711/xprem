@@ -383,6 +383,8 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 		))
 	}
 
+	buildHandler := handlers.NewBuildHandler(environmentService, credentialsService, iosCredentialsService, appIdentifierService)
+	buildHandler.SetEnvironmentAuthorizer(environmentAuthorizer(apiKeyAccessService))
 	container := &AppContainer{
 		AuthHandler:                 dashhandlers.NewAuthHandler(dashboardAuthService, rateLimiter),
 		DashboardAuthService:        dashboardAuthService,
@@ -402,7 +404,7 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 		CredentialsHandler:          dashhandlers.NewCredentialsHandler(credentialsService),
 		IosCredentialsHandler:       dashhandlers.NewIosCredentialsHandler(iosCredentialsService),
 		AppIdentifierRepo:           appIdentifierRepo,
-		BuildHandler:                handlers.NewBuildHandler(environmentService, credentialsService, iosCredentialsService, appIdentifierService),
+		BuildHandler:                buildHandler,
 		BuildRegistryHandler:        handlers.NewBuildRegistryHandler(buildService),
 		EnvironmentsHandler:         dashhandlers.NewEnvironmentsHandler(environmentService),
 		ExpoProtocolHandler:         handlers.NewExpoProtocolHandler(expoProtocolService),
