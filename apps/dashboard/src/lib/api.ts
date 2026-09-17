@@ -323,6 +323,7 @@ export type EnvironmentRecord = {
 export type BuildMetadata = {
   profile: string;
   mode?: 'debug' | 'release';
+  distribution?: 'app-store' | 'ad-hoc';
   environment?: string;
   channel?: string;
   version?: string;
@@ -340,7 +341,7 @@ export type BuildMetadata = {
 };
 
 export type BuildStatus = 'building' | 'uploading' | 'ready' | 'failed';
-export type BuildArtifactType = 'apk' | 'aab';
+export type BuildArtifactType = 'apk' | 'aab' | 'ipa';
 
 // One build the CLI uploaded to the registry. `readyAt` is set once the
 // artifact was fully stored; a build stays `uploading` until then.
@@ -348,7 +349,7 @@ export type BuildRecord = {
   id: string;
   appId: string;
   appIdentifierId: string;
-  platform: 'android';
+  platform: 'android' | 'ios';
   applicationId: string;
   status: BuildStatus;
   artifactType: BuildArtifactType;

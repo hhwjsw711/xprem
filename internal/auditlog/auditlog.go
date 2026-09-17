@@ -110,6 +110,7 @@ const (
 	ActionAndroidCredentialsDeleted         Action = "android_credentials.deleted"
 	ActionIosSigningUpdated                 Action = "ios_signing.updated"
 	ActionIosCertificateSaved               Action = "ios_certificate.saved"
+	ActionIosCredentialsDownloaded          Action = "ios_credentials.downloaded"
 	ActionAppStoreConnectApiKeySaved        Action = "app_store_connect_api_key.saved"
 	ActionAppStoreConnectApiKeyDeleted      Action = "app_store_connect_api_key.deleted"
 	ActionIosDeviceInvitationCreated        Action = "ios_device_invitation.created"

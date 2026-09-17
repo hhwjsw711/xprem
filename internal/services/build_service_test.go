@@ -411,23 +411,14 @@ func TestBuildRegistrationPlatformRules(t *testing.T) {
 	}
 }
 
-func TestBuildRejectsUnsupportedPlatformBeforeMetadata(t *testing.T) {
-	for _, operation := range []string{"start", "register"} {
-		t.Run(operation, func(t *testing.T) {
-			f := newBuildFixture(t)
-			// No storage may be consulted and no build persisted on rejection.
-			f.service.storage = nil
-			var err error
-			if operation == "start" {
-				_, err = f.service.Start(context.Background(), testBuildApp, otherBuildID, testBuildID, BuildStartInput{ArtifactType: types.BuildArtifactIPA})
-			} else {
-				_, err = f.service.RegisterArtifact(context.Background(), testBuildApp, otherBuildID, testBuildID, RegisterBuildInput{ArtifactType: types.BuildArtifactIPA})
-			}
-			require.ErrorContains(t, err, "iOS build artifacts are not supported yet")
-			require.True(t, validation.IsValidationError(err))
-			require.Empty(t, f.repo.builds)
-		})
-	}
+func TestBuildAcceptsIosArtifacts(t *testing.T) {
+	f := newBuildFixture(t)
+	input := f.startInput()
+	input.ArtifactType = types.BuildArtifactIPA
+	build, err := f.service.Start(context.Background(), testBuildApp, otherBuildID, testBuildID, input)
+	require.NoError(t, err)
+	require.Equal(t, types.PlatformIOS, build.Platform)
+	require.Equal(t, types.BuildArtifactIPA, build.ArtifactType)
 }
 
 func TestBuildRejectsArtifactForAnotherPlatform(t *testing.T) {
@@ -819,4 +810,43 @@ func TestBuildSharesRequireReadyAPK(t *testing.T) {
 	f.repo.err = errors.New("database down")
 	_, _, err = f.service.ResolveShare(ctx, token)
 	require.False(t, errors.As(err, &missing), "outages are not reported as missing links")
+}
+
+func TestBuildSharesRequireAdHocOverHTTPSForIos(t *testing.T) {
+	f := newBuildFixture(t)
+	ctx := context.Background()
+	share := func(distribution types.IosDistribution) error {
+		f.repo.builds[testBuildID] = types.BuildRecord{
+			ID: testBuildID, AppID: testBuildApp, AppIdentifierID: otherBuildID, Platform: types.PlatformIOS,
+			Status: types.BuildStatusReady, ArtifactType: types.BuildArtifactIPA, Metadata: types.BuildMetadata{Distribution: distribution},
+		}
+		_, _, err := f.service.CreateShare(ctx, testBuildApp, testBuildID, 24)
+		return err
+	}
+	t.Setenv("BASE_URL", "https://ota.example.com")
+	require.ErrorContains(t, share(types.IosDistributionAppStore), "only ready APK and iOS Ad Hoc builds can be shared")
+	require.ErrorContains(t, share(""), "only ready APK and iOS Ad Hoc builds can be shared")
+	require.NoError(t, share(types.IosDistributionAdHoc))
+	t.Setenv("BASE_URL", "http://localhost:3000")
+	err := share(types.IosDistributionAdHoc)
+	require.ErrorContains(t, err, "HTTPS")
+	require.True(t, validation.IsValidationError(err))
+}
+
+func TestBuildDistributionIsAnIosField(t *testing.T) {
+	f := newBuildFixture(t)
+	android := f.startInput()
+	android.Metadata.Distribution = types.IosDistributionAdHoc
+	_, err := f.service.Start(context.Background(), testBuildApp, testBuildIdentifier, testBuildID, android)
+	require.ErrorContains(t, err, "only iOS builds have a distribution")
+
+	ios := f.startInput()
+	ios.ArtifactType, ios.Metadata.Distribution = types.BuildArtifactIPA, "enterprise"
+	_, err = f.service.Start(context.Background(), testBuildApp, otherBuildID, testBuildID, ios)
+	require.ErrorContains(t, err, "metadata.distribution")
+
+	ios.Metadata.Distribution = types.IosDistributionAdHoc
+	build, err := f.service.Start(context.Background(), testBuildApp, otherBuildID, testBuildID, ios)
+	require.NoError(t, err)
+	require.Equal(t, types.IosDistributionAdHoc, build.Metadata.Distribution)
 }

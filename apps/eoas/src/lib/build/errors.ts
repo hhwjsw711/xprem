@@ -10,11 +10,26 @@ export function formatBuildError(stage: string, error: unknown, secrets: string[
   let detail =
     output || (typeof failure.message === 'string' ? failure.message : 'Unknown tool error');
   detail = createBuildOutputRedactor(secrets)(detail);
-  if (detail.length > 12000) {
-    detail = `[earlier output omitted]\n${detail.slice(-12000)}`;
+  const errors = compilerErrors(detail);
+  // Compilers bury their errors under later warnings, so they are repeated last and the tail shrinks.
+  const tail = errors.length ? 3000 : 12000;
+  if (detail.length > tail) {
+    detail = `[earlier output omitted]\n${detail.slice(-tail)}`;
   }
   const status = typeof failure.status === 'number' ? ` (exit code ${failure.status})` : '';
-  return `${stage} failed${status}.\n\n${detail.trim()}`;
+  const summary = errors.length ? `\n\nErrors:\n${errors.join('\n')}` : '';
+  return `${stage} failed${status}.\n\n${detail.trim()}${summary}`;
+}
+
+// Distinct "file:line: error: ..." and "error: ..." lines, without the indented source excerpts.
+function compilerErrors(output: string): string[] {
+  // Xcode 27 in quiet mode reports successful Swift compilations that warn as "failed with exit code 0".
+  const lines = output
+    .split('\n')
+    .filter(
+      line => /^\S.*\berror: |^error: /.test(line) && !line.includes('failed with exit code 0')
+    );
+  return [...new Set(lines)].slice(0, 20).map(line => line.slice(0, 600));
 }
 
 export function createBuildOutputRedactor(secrets: string[]): (output: string) => string {

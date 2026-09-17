@@ -16,6 +16,7 @@ import (
 type IosCredentialsRepository interface {
 	SaveIosCertificate(ctx context.Context, certificate store.IosCertificate, seal store.SealIosCertificateFunc) (string, error)
 	GetIosCertificate(ctx context.Context, certificateId string) (*store.IosCertificate, error)
+	GetIosCertificateFile(ctx context.Context, certificateId string) (*store.SealedIosCertificateFile, error)
 	ListIosCertificates(ctx context.Context) ([]store.IosCertificate, error)
 	GetIosSigningSetting(ctx context.Context, identifierId string) (*store.IosSigningSetting, error)
 	UpsertIosSigningSetting(ctx context.Context, identifierId string, setting store.IosSigningSetting) error

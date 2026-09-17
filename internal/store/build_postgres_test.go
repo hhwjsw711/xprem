@@ -400,7 +400,26 @@ func TestBuildStoreShares(t *testing.T) {
 	_, err = f.builds.CreateShare(ctx, uuid.NewString(), aab.ID, aabHash, time.Now().Add(time.Hour))
 	require.NoError(t, err)
 	_, _, err = f.builds.ResolveShare(ctx, aabHash)
-	require.ErrorAs(t, err, &missing, "only APKs are installable from a link")
+	require.ErrorAs(t, err, &missing, "a store bundle is not installable from a link")
+
+	ipa := withArtifact(f.record(uuid.NewString(), types.BuildStatusUploading))
+	ipa.Platform, ipa.ArtifactType = types.PlatformIOS, types.BuildArtifactIPA
+	ipa.ArtifactKey = strings.TrimSuffix(ipa.ArtifactKey, ".apk") + ".ipa"
+	ipa.Metadata.Distribution = types.IosDistributionAdHoc
+	_, _, err = f.builds.Create(ctx, ipa)
+	require.NoError(t, err)
+	_, err = f.builds.Transition(ctx, f.app, ipa.ID, func(current types.BuildRecord) (*types.BuildRecord, error) {
+		next := current
+		next.Status = types.BuildStatusReady
+		return &next, nil
+	})
+	require.NoError(t, err)
+	ipaHash := strings.Repeat("5", 64)
+	_, err = f.builds.CreateShare(ctx, uuid.NewString(), ipa.ID, ipaHash, time.Now().Add(time.Hour))
+	require.NoError(t, err)
+	resolved, _, err = f.builds.ResolveShare(ctx, ipaHash)
+	require.NoError(t, err)
+	require.Equal(t, types.IosDistributionAdHoc, resolved.Metadata.Distribution)
 
 	_, err = f.pool.Exec(ctx, "DELETE FROM apps WHERE id = $1", f.app)
 	require.NoError(t, err)

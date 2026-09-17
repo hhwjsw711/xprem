@@ -41,6 +41,28 @@ func RegistrationProfile(input RegistrationProfileInput) ([]byte, error) {
 	return plist.MarshalIndent(document, plist.XMLFormat, "\t")
 }
 
+// InstallManifestInput describes the Ad Hoc build an iPhone installs from a link.
+type InstallManifestInput struct {
+	PackageURL       string
+	BundleIdentifier string
+	Version          string
+	Title            string
+}
+
+// InstallManifest renders the manifest an itms-services link points iOS at.
+func InstallManifest(input InstallManifestInput) ([]byte, error) {
+	document := map[string]any{"items": []any{map[string]any{
+		"assets": []any{map[string]any{"kind": "software-package", "url": input.PackageURL}},
+		"metadata": map[string]any{
+			"bundle-identifier": input.BundleIdentifier,
+			"bundle-version":    input.Version,
+			"kind":              "software",
+			"title":             input.Title,
+		},
+	}}}
+	return plist.MarshalIndent(document, plist.XMLFormat, "\t")
+}
+
 // DeviceAttributes is what an iPhone sends back after installing a registration profile.
 type DeviceAttributes struct {
 	UDID       string `plist:"UDID"`

@@ -1,6 +1,6 @@
 import { resolveEasProfile, validateEasConfig } from './eas';
 import { ProfileNameSchema, ResourceNameSchema } from './schema';
-import { BuildProfile, XpremConfig } from './types';
+import { AndroidProfile, BuildProfile, XpremConfig } from './types';
 
 export type ImportIssue = { level: 'warning' | 'error'; path: string; message: string };
 export type EasImport = { config: XpremConfig; issues: ImportIssue[] };
@@ -52,8 +52,8 @@ export function convertEasConfig(input: unknown, applicationId = ''): EasImport 
       }
     }
     const developmentClient = effective.developmentClient === true;
-    let mode: BuildProfile['android']['mode'] = developmentClient ? 'debug' : 'release';
-    let artifact: BuildProfile['android']['artifact'] =
+    let mode: AndroidProfile['mode'] = developmentClient ? 'debug' : 'release';
+    let artifact: AndroidProfile['artifact'] =
       developmentClient ||
       android.buildType === 'apk' ||
       (android.buildType === undefined && effective.distribution === 'internal')
@@ -62,7 +62,7 @@ export function convertEasConfig(input: unknown, applicationId = ''): EasImport 
     if (android.gradleCommand !== undefined) {
       const tasks: Record<
         string,
-        { mode: BuildProfile['android']['mode']; artifact: BuildProfile['android']['artifact'] }
+        { mode: AndroidProfile['mode']; artifact: AndroidProfile['artifact'] }
       > = {
         ':app:assembleDebug': { mode: 'debug', artifact: 'apk' },
         ':app:assembleRelease': { mode: 'release', artifact: 'apk' },

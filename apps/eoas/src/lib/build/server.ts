@@ -40,9 +40,13 @@ export async function fetchEnvironment(
 export async function fetchCredentials<T extends object>(
   endpoint: string,
   platform: BuildPlatform,
-  fields: (keyof T & string)[]
+  fields: (keyof T & string)[],
+  query: Record<string, string> = {}
 ): Promise<T> {
-  const credentials = await request<Record<string, unknown>>(`${endpoint}/credentials/${platform}`);
+  const search = new URLSearchParams(query).toString();
+  const credentials = await request<Record<string, unknown>>(
+    `${endpoint}/credentials/${platform}${search ? `?${search}` : ''}`
+  );
   if (fields.some(field => typeof credentials[field] !== 'string' || !credentials[field])) {
     throw new Error(`Incomplete ${platform} signing credentials.`);
   }
@@ -64,10 +68,27 @@ export async function allocateBuildNumber(endpoint: string): Promise<string> {
 }
 
 export class BuildServerError extends Error {
-  constructor(readonly status: number) {
+  constructor(
+    readonly status: number,
+    detail?: string
+  ) {
     super(
-      `Build server returned HTTP ${status}. Check token permissions, identifier and environment selection.`
+      detail
+        ? `Build server returned HTTP ${status}: ${detail}`
+        : `Build server returned HTTP ${status}. Check token permissions, identifier and environment selection.`
     );
+  }
+}
+
+// The detail of the server's problem+json answer, without control characters.
+async function problemDetail(response: Response): Promise<string | undefined> {
+  try {
+    const { detail } = (await response.json()) as { detail?: unknown };
+    return typeof detail === 'string'
+      ? detail.replace(/[\u0000-\u001f\u007f-\u009f]/gu, ' ').slice(0, 500) || undefined
+      : undefined;
+  } catch {
+    return undefined;
   }
 }
 
@@ -104,7 +125,7 @@ export async function request<T>(
     );
   }
   if (!response.ok) {
-    throw new BuildServerError(response.status);
+    throw new BuildServerError(response.status, await problemDetail(response));
   }
   try {
     return (await response.json()) as T;

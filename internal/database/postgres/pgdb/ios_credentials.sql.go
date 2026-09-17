@@ -82,6 +82,24 @@ func (q *Queries) GetIosCertificate(ctx context.Context, id pgtype.UUID) (GetIos
 	return i, err
 }
 
+const getIosCertificateFile = `-- name: GetIosCertificateFile :one
+SELECT sealed_certificate, sealed_certificate_password
+FROM ios_certificates
+WHERE id = $1
+`
+
+type GetIosCertificateFileRow struct {
+	SealedCertificate         string `json:"sealed_certificate"`
+	SealedCertificatePassword string `json:"sealed_certificate_password"`
+}
+
+func (q *Queries) GetIosCertificateFile(ctx context.Context, id pgtype.UUID) (GetIosCertificateFileRow, error) {
+	row := q.db.QueryRow(ctx, getIosCertificateFile, id)
+	var i GetIosCertificateFileRow
+	err := row.Scan(&i.SealedCertificate, &i.SealedCertificatePassword)
+	return i, err
+}
+
 const getIosSigningSetting = `-- name: GetIosSigningSetting :one
 SELECT mode, certificate_id
 FROM ios_signing_settings

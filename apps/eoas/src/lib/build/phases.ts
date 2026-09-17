@@ -3,9 +3,11 @@
 export enum BuildPhase {
   BUILDER_INFO = 'BUILDER_INFO',
   CALCULATE_EXPO_UPDATES_RUNTIME_VERSION = 'CALCULATE_EXPO_UPDATES_RUNTIME_VERSION',
+  CONFIGURE_XCODE_PROJECT = 'CONFIGURE_XCODE_PROJECT',
   CUSTOM = 'CUSTOM',
   EAGER_BUNDLE = 'EAGER_BUNDLE',
   GRADLE_BUILD_PROFILE = 'GRADLE_BUILD_PROFILE',
+  INSTALL_PODS = 'INSTALL_PODS',
   PREBUILD = 'PREBUILD',
   PREPARE_ARTIFACTS = 'PREPARE_ARTIFACTS',
   PREPARE_CREDENTIALS = 'PREPARE_CREDENTIALS',
@@ -13,6 +15,7 @@ export enum BuildPhase {
   READ_APP_CONFIG = 'READ_APP_CONFIG',
   RUN_EXPO_DOCTOR = 'RUN_EXPO_DOCTOR',
   RUN_GRADLEW = 'RUN_GRADLEW',
+  RUN_XCODEBUILD = 'RUN_XCODEBUILD',
   SET_UP_BUILD_ENVIRONMENT = 'SET_UP_BUILD_ENVIRONMENT',
   UPLOAD_APPLICATION_ARCHIVE = 'UPLOAD_APPLICATION_ARCHIVE',
 }
@@ -32,9 +35,11 @@ export enum LogMarker {
 export const buildPhaseDisplayName: Record<BuildPhase, string> = {
   [BuildPhase.BUILDER_INFO]: 'Build machine info',
   [BuildPhase.CALCULATE_EXPO_UPDATES_RUNTIME_VERSION]: 'Calculate runtime version',
+  [BuildPhase.CONFIGURE_XCODE_PROJECT]: 'Configure Xcode project',
   [BuildPhase.CUSTOM]: 'Custom step',
   [BuildPhase.EAGER_BUNDLE]: 'Bundle JavaScript',
   [BuildPhase.GRADLE_BUILD_PROFILE]: 'Gradle build profile',
+  [BuildPhase.INSTALL_PODS]: 'Install pods',
   [BuildPhase.PREBUILD]: 'Prebuild',
   [BuildPhase.PREPARE_ARTIFACTS]: 'Prepare artifacts',
   [BuildPhase.PREPARE_CREDENTIALS]: 'Prepare credentials',
@@ -42,6 +47,7 @@ export const buildPhaseDisplayName: Record<BuildPhase, string> = {
   [BuildPhase.READ_APP_CONFIG]: 'Read app config',
   [BuildPhase.RUN_EXPO_DOCTOR]: 'Run expo doctor',
   [BuildPhase.RUN_GRADLEW]: 'Run Gradle',
+  [BuildPhase.RUN_XCODEBUILD]: 'Run Xcode build',
   [BuildPhase.SET_UP_BUILD_ENVIRONMENT]: 'Set up build environment',
   [BuildPhase.UPLOAD_APPLICATION_ARCHIVE]: 'Upload application archive',
 };

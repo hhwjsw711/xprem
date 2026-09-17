@@ -4,11 +4,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html/template"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
+	"time"
 	"xprem/config"
 	"xprem/internal/bucket"
+	"xprem/internal/ios"
 	"xprem/internal/services"
 	"xprem/internal/store"
 	"xprem/internal/types"
@@ -261,30 +265,109 @@ func (h *BuildRegistryHandler) RevokeShare(w http.ResponseWriter, r *http.Reques
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (h *BuildRegistryHandler) PublicShare(w http.ResponseWriter, r *http.Request) {
+// resolveShare loads the build behind a share link, answering for the caller when the link is dead.
+func (h *BuildRegistryHandler) resolveShare(w http.ResponseWriter, r *http.Request) (*types.BuildRecord, time.Time, bool) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("X-Robots-Tag", "noindex, nofollow")
-	token := mux.Vars(r)["TOKEN"]
-	b, expiresAt, err := h.service.ResolveShare(r.Context(), token)
-	var downloadURL string
-	if err == nil {
-		downloadURL, err = h.service.DownloadURL(r.Context(), *b, expiresAt)
-	}
+	b, expiresAt, err := h.service.ResolveShare(r.Context(), mux.Vars(r)["TOKEN"])
 	var missing *store.ErrResourceNotFound
 	switch {
-	case errors.As(err, &missing), errors.Is(err, store.ErrNotSupportedInStatelessMode), errors.Is(err, bucket.ErrBuildDownloadExpired):
+	case errors.As(err, &missing), errors.Is(err, store.ErrNotSupportedInStatelessMode):
 		http.Error(w, "Expired link", http.StatusBadRequest)
-		return
+		return nil, time.Time{}, false
 	case err != nil:
+		http.Error(w, "Could not resolve this sharing link.", http.StatusInternalServerError)
+		return nil, time.Time{}, false
+	}
+	return b, expiresAt, true
+}
+
+// PublicShare downloads a shared APK, or shows the install page of a shared iOS build.
+func (h *BuildRegistryHandler) PublicShare(w http.ResponseWriter, r *http.Request) {
+	b, expiresAt, ok := h.resolveShare(w, r)
+	if !ok {
+		return
+	}
+	if b.ArtifactType != types.BuildArtifactIPA {
+		h.serveSharedArtifact(w, r, *b, expiresAt)
+		return
+	}
+	manifestURL := config.BaseURL() + "/build-shares/" + mux.Vars(r)["TOKEN"] + "/manifest.plist"
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_ = iosInstallPage.Execute(w, map[string]any{
+		"ApplicationID": b.ApplicationID,
+		"Version":       b.Metadata.Version,
+		"BuildNumber":   b.Metadata.BuildNumber,
+		"InstallURL":    template.URL("itms-services://?action=download-manifest&url=" + url.QueryEscape(manifestURL)),
+	})
+}
+
+// PublicShareManifest answers the manifest iOS reads before installing a shared build.
+func (h *BuildRegistryHandler) PublicShareManifest(w http.ResponseWriter, r *http.Request) {
+	b, _, ok := h.resolveShare(w, r)
+	if !ok {
+		return
+	}
+	manifest, err := ios.InstallManifest(ios.InstallManifestInput{
+		PackageURL:       config.BaseURL() + "/build-shares/" + mux.Vars(r)["TOKEN"] + "/app.ipa",
+		BundleIdentifier: b.ApplicationID,
+		Version:          b.Metadata.Version,
+		Title:            b.ApplicationID,
+	})
+	if err != nil {
 		http.Error(w, "Could not resolve this sharing link.", http.StatusInternalServerError)
 		return
 	}
-	if downloadURL != "" {
+	w.Header().Set("Content-Type", "text/xml; charset=utf-8")
+	_, _ = w.Write(manifest)
+}
+
+// PublicShareArtifact serves the file of a shared build to the iOS installer.
+func (h *BuildRegistryHandler) PublicShareArtifact(w http.ResponseWriter, r *http.Request) {
+	if b, expiresAt, ok := h.resolveShare(w, r); ok {
+		h.serveSharedArtifact(w, r, *b, expiresAt)
+	}
+}
+
+func (h *BuildRegistryHandler) serveSharedArtifact(w http.ResponseWriter, r *http.Request, b types.BuildRecord, expiresAt time.Time) {
+	downloadURL, err := h.service.DownloadURL(r.Context(), b, expiresAt)
+	switch {
+	case errors.Is(err, bucket.ErrBuildDownloadExpired):
+		http.Error(w, "Expired link", http.StatusBadRequest)
+	case err != nil:
+		http.Error(w, "Could not resolve this sharing link.", http.StatusInternalServerError)
+	case downloadURL != "":
 		w.Header().Set("Location", downloadURL)
 		w.WriteHeader(http.StatusFound)
-		return
+	default:
+		h.download(w, r, b)
 	}
-	h.download(w, r, *b)
 }
+
+var iosInstallPage = template.Must(template.New("ios-install").Parse(`<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Install {{.ApplicationID}}</title>
+<style>
+body{font-family:-apple-system,system-ui,sans-serif;margin:0;padding:32px 20px;background:#fafafa;color:#18181b}
+main{max-width:420px;margin:0 auto}
+h1{font-size:20px;margin:0 0 4px;word-break:break-all}
+p{font-size:14px;line-height:1.5;color:#52525b}
+a.install{display:block;margin:24px 0;padding:14px;border-radius:10px;background:#18181b;color:#fff;text-align:center;text-decoration:none;font-weight:600}
+@media (prefers-color-scheme:dark){body{background:#09090b;color:#fafafa}p{color:#a1a1aa}a.install{background:#fafafa;color:#18181b}}
+</style>
+</head>
+<body>
+<main>
+<h1>{{.ApplicationID}}</h1>
+<p>Version {{.Version}} ({{.BuildNumber}})</p>
+<a class="install" href="{{.InstallURL}}">Install</a>
+<p>Open this page in Safari on the iPhone. Only iPhones that were registered for this app before this build was made can install it.</p>
+</main>
+</body>
+</html>
+`))

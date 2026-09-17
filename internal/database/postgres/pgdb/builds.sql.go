@@ -424,7 +424,7 @@ func (q *Queries) MarkBuildStagingSwept(ctx context.Context, buildID pgtype.UUID
 
 const resolveBuildShare = `-- name: ResolveBuildShare :one
 SELECT b.id, b.app_id, s.expires_at AS share_expires_at FROM build_shares s JOIN builds b ON b.id=s.build_id
-WHERE s.token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at>now() AND b.status='ready' AND b.artifact_type='apk'
+WHERE s.token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at>now() AND b.status='ready' AND b.artifact_type IN ('apk', 'ipa')
 `
 
 type ResolveBuildShareRow struct {

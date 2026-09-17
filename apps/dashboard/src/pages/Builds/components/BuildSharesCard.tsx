@@ -11,7 +11,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Skeleton } from '@/components/ui/skeleton';
 import { ApiError } from '@/components/APIError';
 import { AdminOnlyNote } from '@/components/ui/admin-only-note';
-import { canShareBuild, shareState, ShareState } from '../format';
+import { canShareBuild, isInstallableFromLink, shareState, ShareState } from '../format';
 
 const stateBadge: Record<ShareState, { label: string; className: string }> = {
   active: {
@@ -99,7 +99,7 @@ export const BuildSharesCard = ({
   const sharesQuery = useQuery({
     queryKey: ['build-shares', selectedAppId, build.id],
     queryFn: () => api.getBuildShares(build.id),
-    enabled: !!selectedAppId && canShare && build.artifactType === 'apk',
+    enabled: !!selectedAppId && canShare && isInstallableFromLink(build),
   });
   const shares = sharesQuery.data?.shares ?? [];
   const activeCount = shares.filter(share => shareState(share, now) === 'active').length;
@@ -128,7 +128,7 @@ export const BuildSharesCard = ({
           <CardTitle className="flex items-center gap-2 text-base">
             <Link2 className="h-4 w-4 text-muted-foreground" />
             Install links
-            {canShare && build.artifactType === 'apk' && (
+            {canShare && isInstallableFromLink(build) && (
               <Badge variant="secondary" className="ml-1 font-normal">
                 {activeCount} active
               </Badge>
@@ -145,7 +145,7 @@ export const BuildSharesCard = ({
         )}
       </CardHeader>
       <CardContent className="space-y-4 pt-4">
-        {build.artifactType !== 'apk' ? (
+        {!isInstallableFromLink(build) ? (
           <p className="text-sm text-muted-foreground">
             Only APK builds can be installed from a link. This build is an app bundle meant for the
             Play Store.

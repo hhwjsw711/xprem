@@ -1,4 +1,5 @@
 import { ExpoConfig } from '@expo/config';
+import { createHash, randomUUID } from 'crypto';
 import fg from 'fast-glob';
 import fs from 'fs-extra';
 import os from 'os';
@@ -18,15 +19,26 @@ const TEMPLATES = path.resolve(__dirname, '../../../templates');
 // when the user interrupts the process.
 export async function withTemporaryDirectory<T>(
   buildLog: BuildLog,
-  work: (temporary: string) => Promise<T>
+  work: (temporary: string) => Promise<T>,
+  stableFor?: string
 ): Promise<T> {
-  const temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'eoas-build-'));
+  const { directory: temporary, release } = stableFor
+    ? await claimStableDirectory(stableFor)
+    : {
+        directory: await fs.mkdtemp(path.join(os.tmpdir(), 'eoas-build-')),
+        release: async () => {},
+      };
   const interrupt = (): void => {
     buildLog.abort();
     buildLog.write('Build interrupted.');
     void terminateBuildCommand()
       .then(() => buildLog.close())
-      .finally(() => fs.remove(temporary).finally(() => process.exit(130)));
+      .finally(() =>
+        fs
+          .remove(temporary)
+          .then(release)
+          .finally(() => process.exit(130))
+      );
   };
   process.once('SIGINT', interrupt);
   process.once('SIGTERM', interrupt);
@@ -36,6 +48,92 @@ export async function withTemporaryDirectory<T>(
     process.removeListener('SIGINT', interrupt);
     process.removeListener('SIGTERM', interrupt);
     await fs.remove(temporary);
+    await release();
+  }
+}
+
+// Xcode tooling caches absolute paths of the project it builds, so one project always builds at one
+// path, which one build at a time may hold.
+async function claimStableDirectory(
+  project: string
+): Promise<{ directory: string; release: () => Promise<void> }> {
+  const key = createHash('sha256').update(project).digest('hex').slice(0, 12);
+  const directory = path.join(os.tmpdir(), `eoas-build-${key}`);
+  const release = await lockDirectory(directory);
+  try {
+    await fs.remove(directory);
+    await fs.ensureDir(directory);
+  } catch (error) {
+    await release();
+    throw error;
+  }
+  return { directory, release };
+}
+
+// Takes the lock of a directory and returns its release. The lock appears with its owner's pid
+// already inside, and the lock of a dead owner is only replaced by the one contender that wins the
+// takeover marker of that owner.
+export async function lockDirectory(directory: string): Promise<() => Promise<void>> {
+  const lock = `${directory}.lock`;
+  const busy = new Error(
+    `Another build of this project is already running on this machine (${lock}).`
+  );
+  const mine = `${lock}.${process.pid}.${randomUUID()}`;
+  await fs.writeFile(mine, String(process.pid));
+  try {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        await fs.link(mine, lock);
+        return () => fs.remove(lock);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
+          throw error;
+        }
+      }
+      const owner = await pidIn(lock);
+      if (!owner) {
+        continue;
+      }
+      if (isRunning(owner)) {
+        throw busy;
+      }
+      const takeover = `${lock}.takeover.${owner}`;
+      try {
+        await fs.writeFile(takeover, String(process.pid), { flag: 'wx' });
+      } catch {
+        const taker = await pidIn(takeover);
+        if (taker && isRunning(taker)) {
+          throw busy;
+        }
+        await fs.remove(takeover);
+        continue;
+      }
+      try {
+        // Another contender may have replaced this owner's lock before the marker was won.
+        if ((await pidIn(lock)) === owner) {
+          await fs.rename(mine, lock);
+          return () => fs.remove(lock);
+        }
+      } finally {
+        await fs.remove(takeover);
+      }
+    }
+    throw busy;
+  } finally {
+    await fs.remove(mine);
+  }
+}
+
+async function pidIn(file: string): Promise<number> {
+  return Number(await fs.readFile(file, 'utf8').catch(() => ''));
+}
+
+function isRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'EPERM';
   }
 }
 
@@ -57,7 +155,8 @@ export async function copyProject(project: string, temporary: string): Promise<s
       const name = path.basename(source);
       if (
         ['.git', '.expo', '.gradle'].includes(name) ||
-        source === path.join(project, 'build-artifacts')
+        source === path.join(project, 'build-artifacts') ||
+        source === path.join(project, 'ios/Pods')
       ) {
         return false;
       }

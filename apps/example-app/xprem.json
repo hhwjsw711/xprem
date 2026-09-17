@@ -7,6 +7,10 @@
         "mode": "release",
         "artifact": "apk"
       },
+      "ios": {
+        "bundleIdentifier": "com.xprem.sample",
+        "distribution": "ad-hoc"
+      },
       "channel": "production"
     }
   }

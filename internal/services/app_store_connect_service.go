@@ -256,6 +256,17 @@ func (s *IosCredentialsService) ImportIosCertificate(ctx context.Context, appId 
 	if index < 0 {
 		return nil, validation.Errorf("", "This certificate is not an unexpired distribution certificate of the Apple team of this app's App Store Connect API key")
 	}
+	certificateId, err := s.saveIosCertificate(ctx, appId, certificate, p12, input.CertificatePassword)
+	if err != nil {
+		return nil, err
+	}
+	certificates[index].XpremCertificateId = &certificateId
+	certificates[index].Selectable = true
+	return certificates, nil
+}
+
+// saveIosCertificate seals a PKCS#12 file into the pool and returns the id of its pool row.
+func (s *IosCredentialsService) saveIosCertificate(ctx context.Context, appId string, certificate *ios.Certificate, p12 []byte, password string) (string, error) {
 	masterKey := []byte(keyStore.ReadDBKeysMasterKey())
 	certificateId, err := s.repo.SaveIosCertificate(ctx, store.IosCertificate{
 		CommonName:      certificate.CommonName,
@@ -269,14 +280,14 @@ func (s *IosCredentialsService) ImportIosCertificate(ctx context.Context, appId 
 		if err != nil {
 			return "", "", fmt.Errorf("failed to seal certificate: %w", err)
 		}
-		sealedPassword, err := crypto.SealAESGCM([]byte(input.CertificatePassword), masterKey, iosCertificateAAD(certificateId, "certificate_password"))
+		sealedPassword, err := crypto.SealAESGCM([]byte(password), masterKey, iosCertificateAAD(certificateId, "certificate_password"))
 		if err != nil {
 			return "", "", fmt.Errorf("failed to seal certificate password: %w", err)
 		}
 		return sealedCertificate, sealedPassword, nil
 	})
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	recordManagementEvent(ctx, s.onAuditEvent, auditlog.Event{
 		Action:        auditlog.ActionIosCertificateSaved,
@@ -286,9 +297,7 @@ func (s *IosCredentialsService) ImportIosCertificate(ctx context.Context, appId 
 		AppID:         appId,
 		Metadata:      map[string]any{"fingerprint_sha1": certificate.FingerprintSHA1, "common_name": certificate.CommonName},
 	})
-	certificates[index].XpremCertificateId = &certificateId
-	certificates[index].Selectable = true
-	return certificates, nil
+	return certificateId, nil
 }
 
 // appleTeamID reads the team of the app's API key from its distribution certificates.

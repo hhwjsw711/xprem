@@ -38,10 +38,13 @@ export const buildVersionLabel = (build: BuildRecord) => {
 export const buildFileName = (build: BuildRecord) =>
   `${build.applicationId}-${build.metadata.buildNumber}.${build.artifactType}`;
 
-// Install links exist for APKs only: an AAB is a store bundle, not something a
-// phone can install.
+// A phone installs an APK or an iOS Ad Hoc build from a link; store bundles go through the store.
+export const isInstallableFromLink = (build: BuildRecord) =>
+  build.artifactType === 'apk' ||
+  (build.artifactType === 'ipa' && build.metadata.distribution === 'ad-hoc');
+
 export const canShareBuild = (build: BuildRecord) =>
-  build.status === 'ready' && build.artifactType === 'apk';
+  build.status === 'ready' && isInstallableFromLink(build);
 
 export type ShareState = 'active' | 'expired' | 'revoked';
 

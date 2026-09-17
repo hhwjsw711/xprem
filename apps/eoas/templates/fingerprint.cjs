@@ -3,9 +3,9 @@ const { createRequire } = require('node:module');
 const path = require('node:path');
 
 async function main() {
-  const [project, fingerprintModule, output] = process.argv.slice(2);
+  const [project, fingerprintModule, output, platform] = process.argv.slice(2);
   const fingerprint = await require(fingerprintModule).createFingerprintAsync(project, {
-    platforms: ['android'],
+    platforms: [platform],
     silent: true,
     ignorePaths: ['build-artifacts/**/*', '.eoas-export/**/*', 'android/local.properties'],
   });

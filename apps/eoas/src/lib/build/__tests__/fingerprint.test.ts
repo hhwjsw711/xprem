@@ -57,6 +57,7 @@ it.each([
               project,
               fingerprintModule,
               output,
+              'android',
             ],
             cwd: project,
             env: process.env,

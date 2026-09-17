@@ -43,11 +43,25 @@ const AndroidProfileSchema = Joi.object({
     }),
   });
 
+const IosProfileSchema = Joi.object({
+  bundleIdentifier: Joi.string()
+    .max(155)
+    .pattern(/^[a-zA-Z0-9-]+(\.[a-zA-Z0-9-]+)+$/)
+    .required(),
+  distribution: Joi.string().valid('app-store', 'ad-hoc').required(),
+  developmentClient: Joi.boolean(),
+}).when(Joi.object({ developmentClient: Joi.valid(true).required() }).unknown(), {
+  then: Joi.object({ distribution: Joi.valid(Joi.override, 'ad-hoc') }),
+});
+
 const BuildProfileSchema = Joi.object({
   channel: ResourceNameSchema,
   environment: ResourceNameSchema,
-  android: AndroidProfileSchema.required(),
-}).oxor('channel', 'environment');
+  android: AndroidProfileSchema,
+  ios: IosProfileSchema,
+})
+  .or('android', 'ios')
+  .oxor('channel', 'environment');
 
 export const XpremConfigSchema = Joi.object<XpremConfig>({
   schemaVersion: Joi.number().valid(1).required(),

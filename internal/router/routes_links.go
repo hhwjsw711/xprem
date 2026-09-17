@@ -11,6 +11,8 @@ import (
 // reach: a shared build and the iPhone registration flow.
 func registerLinkRoutes(r *mux.Router, container *AppContainer) {
 	r.HandleFunc("/build-shares/{TOKEN}", container.BuildRegistryHandler.PublicShare).Methods(http.MethodGet)
+	r.HandleFunc("/build-shares/{TOKEN}/manifest.plist", container.BuildRegistryHandler.PublicShareManifest).Methods(http.MethodGet)
+	r.HandleFunc("/build-shares/{TOKEN}/app.ipa", container.BuildRegistryHandler.PublicShareArtifact).Methods(http.MethodGet)
 
 	deviceRegistrations := r.PathPrefix("/device-registrations").Subrouter()
 	deviceRegistrations.Use(middleware.NewDashboardCORSMiddleware())

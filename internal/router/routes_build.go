@@ -34,4 +34,6 @@ func registerBuildRoutes(r *mux.Router, container *AppContainer) {
 		apikeyrestrictions.BuildActionCreate)
 	build.route(http.MethodGet, "/{IDENTIFIER_ID}/credentials/android", container.BuildHandler.AndroidCredentials,
 		apikeyrestrictions.BuildActionCreate)
+	build.route(http.MethodGet, "/{IDENTIFIER_ID}/credentials/ios", container.BuildHandler.IosCredentials,
+		apikeyrestrictions.BuildActionCreate)
 }

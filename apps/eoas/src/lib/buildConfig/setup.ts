@@ -7,7 +7,7 @@ import { CONFIG_FILENAME, parseConfig, readConfig } from './config';
 import { readEasConfig } from './eas';
 import { convertEasConfig } from './importEas';
 import { ApplicationIdSchema, ProfileNameSchema, ResourceNameSchema } from './schema';
-import { BuildProfile, XpremConfig } from './types';
+import { AndroidProfile, XpremConfig } from './types';
 
 export type PreparedConfig =
   | { kind: 'write'; config: XpremConfig }
@@ -52,7 +52,9 @@ async function reviewEasImport(
   }
   const hasWarnings = converted.issues.length > 0;
   for (const [name, profile] of Object.entries(converted.config.profiles)) {
-    profile.android.applicationId = await askApplicationId(name, profile.android.applicationId);
+    if (profile.android) {
+      profile.android.applicationId = await askApplicationId(name, profile.android.applicationId);
+    }
   }
   return (await confirmConfig(converted.config, hasWarnings)) ? converted.config : undefined;
 }
@@ -101,7 +103,7 @@ export async function prepareBuildConfig(
       !ProfileNameSchema.validate(value).error ||
       'Use 1–64 letters, digits, hyphens or underscores, starting with a letter or digit',
   });
-  const android: BuildProfile['android'] = {
+  const android: AndroidProfile = {
     applicationId: await askApplicationId(name, applicationId),
     mode: preset === 'dev' ? 'debug' : 'release',
     artifact: preset === 'play' ? 'aab' : 'apk',
