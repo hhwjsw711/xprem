@@ -5,7 +5,8 @@ import os from 'os';
 // than the one xcode-select points at.
 export async function resolveIosTools(
   report: (message: string) => void,
-  developerDir?: string
+  developerDir?: string,
+  recordTool: (name: string, version: string) => void = () => {}
 ): Promise<number> {
   if (os.platform() !== 'darwin') {
     throw new Error('Local iOS builds require macOS with Xcode.');
@@ -21,12 +22,14 @@ export async function resolveIosTools(
     throw new Error('Could not read the Xcode version from "xcodebuild -version".');
   }
   report(xcode.split('\n')[0]);
+  recordTool('xcode', xcode.split('\n')[0].replace(/^Xcode /, ''));
   const pods = await toolVersion(
     'pod',
     ['--version'],
     'CocoaPods was not found. Install it with "brew install cocoapods".'
   );
   report(`CocoaPods ${pods}`);
+  recordTool('cocoapods', pods);
   return major;
 }
 

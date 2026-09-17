@@ -49,7 +49,8 @@ export interface NativePreparation<C> {
   credentialsTitle: string;
   resolveTools(
     local: Record<string, string>,
-    phaseLog: PhaseLogger
+    phaseLog: PhaseLogger,
+    recordTool: (name: string, version: string) => void
   ): Promise<Record<string, string>>;
   describe(profile: BuildProfile): {
     applicationId: string;
@@ -73,9 +74,13 @@ export async function prepareNativeBuild<C>(
   const { applicationId, mode, extension } = preparation.describe(profile);
   const local = await readEnvFile(project, options.envFile);
   buildLog.maskSecrets(secretsToRedact(local, []));
+  const toolVersions: Record<string, string> = {};
   const toolEnv = await buildLog.runBuildPhase(
     BuildPhase.BUILDER_INFO,
-    phaseLog => preparation.resolveTools(local, phaseLog),
+    phaseLog =>
+      preparation.resolveTools(local, phaseLog, (name, version) => {
+        toolVersions[name] = version;
+      }),
     preparation.toolsTitle
   );
   const packageRunner = splitPackageRunner(resolvePackageRunner(options.packageRunner, project));
@@ -108,6 +113,7 @@ export async function prepareNativeBuild<C>(
     output,
     nodeEnv,
     toolEnv,
+    toolVersions,
     env: spawnEnvironment(variables, toolEnv, nodeEnv),
   };
 }
