@@ -143,6 +143,10 @@ func (h *AppIdentifiersHandler) DeleteAppIdentifierHandler(w http.ResponseWriter
 			handlers.RenderError(w, http.StatusBadRequest, err.Error())
 			return
 		}
+		if restrictsErr := (*store.ErrAppIdentifierRestrictsApiKeys)(nil); errors.As(err, &restrictsErr) {
+			handlers.RenderError(w, http.StatusConflict, restrictsErr.Error())
+			return
+		}
 		handlers.RenderError(w, http.StatusInternalServerError, "An internal error occurred while deleting the app identifier.")
 		return
 	}

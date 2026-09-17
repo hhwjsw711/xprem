@@ -75,6 +75,16 @@ func (e *ErrResourceNotFound) Error() string {
 	return fmt.Sprintf("%s with identifier %q not found.", e.Resource, e.Identifier)
 }
 
+// ErrAppIdentifierRestrictsApiKeys refuses a deletion that would leave these API keys without any
+// Build or Submit rule, which means unrestricted.
+type ErrAppIdentifierRestrictsApiKeys struct {
+	KeyNames []string
+}
+
+func (e *ErrAppIdentifierRestrictsApiKeys) Error() string {
+	return fmt.Sprintf("cannot delete this identifier because it is the only one these API keys are restricted to: %s. Deleting it would give them access to every identifier. Edit or revoke these keys first.", strings.Join(e.KeyNames, ", "))
+}
+
 type ErrEnvironmentHasChannels struct {
 	EnvironmentName string
 }

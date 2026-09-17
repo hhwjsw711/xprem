@@ -4260,6 +4260,47 @@ func (q *Queries) ListAccessibleAppIDs(ctx context.Context, userID pgtype.UUID) 
 	return items, nil
 }
 
+const listApiKeysOnlyRestrictedToAppIdentifier = `-- name: ListApiKeysOnlyRestrictedToAppIdentifier :many
+SELECT k.name
+FROM api_keys k
+WHERE k.app_id = $1::uuid
+  AND k.revoked_at IS NULL
+  AND (
+    (EXISTS (SELECT 1 FROM api_key_build_rules r WHERE r.api_key_id = k.id AND r.app_identifier_id = $2::uuid)
+     AND NOT EXISTS (SELECT 1 FROM api_key_build_rules r WHERE r.api_key_id = k.id AND r.app_identifier_id <> $2::uuid))
+    OR
+    (EXISTS (SELECT 1 FROM api_key_submit_rules r WHERE r.api_key_id = k.id AND r.app_identifier_id = $2::uuid)
+     AND NOT EXISTS (SELECT 1 FROM api_key_submit_rules r WHERE r.api_key_id = k.id AND r.app_identifier_id <> $2::uuid))
+  )
+ORDER BY k.name
+`
+
+type ListApiKeysOnlyRestrictedToAppIdentifierParams struct {
+	AppID pgtype.UUID `json:"app_id"`
+	ID    pgtype.UUID `json:"id"`
+}
+
+// Live keys whose Build or Submit rules all name this identifier.
+func (q *Queries) ListApiKeysOnlyRestrictedToAppIdentifier(ctx context.Context, arg ListApiKeysOnlyRestrictedToAppIdentifierParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, listApiKeysOnlyRestrictedToAppIdentifier, arg.AppID, arg.ID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		items = append(items, name)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listAuditLogEvents = `-- name: ListAuditLogEvents :many
 SELECT id, occurred_at, actor_type, actor_id, actor_display, action, target_type, target_id, target_display, app_id, outcome, ip, user_agent, metadata FROM audit_log_events
 WHERE ($1::TEXT IS NULL OR actor_id = $1)

@@ -2574,6 +2574,21 @@ SELECT id, platform, identifier, build_number FROM app_identifiers
 WHERE app_id = $1 AND id = $2
 FOR UPDATE;
 
+-- name: ListApiKeysOnlyRestrictedToAppIdentifier :many
+-- Live keys whose Build or Submit rules all name this identifier.
+SELECT k.name
+FROM api_keys k
+WHERE k.app_id = sqlc.arg('app_id')::uuid
+  AND k.revoked_at IS NULL
+  AND (
+    (EXISTS (SELECT 1 FROM api_key_build_rules r WHERE r.api_key_id = k.id AND r.app_identifier_id = sqlc.arg('id')::uuid)
+     AND NOT EXISTS (SELECT 1 FROM api_key_build_rules r WHERE r.api_key_id = k.id AND r.app_identifier_id <> sqlc.arg('id')::uuid))
+    OR
+    (EXISTS (SELECT 1 FROM api_key_submit_rules r WHERE r.api_key_id = k.id AND r.app_identifier_id = sqlc.arg('id')::uuid)
+     AND NOT EXISTS (SELECT 1 FROM api_key_submit_rules r WHERE r.api_key_id = k.id AND r.app_identifier_id <> sqlc.arg('id')::uuid))
+  )
+ORDER BY k.name;
+
 -- name: DeleteAppIdentifierByID :execresult
 -- Credential rows are removed atomically by their ON DELETE CASCADE FK.
 DELETE FROM app_identifiers
