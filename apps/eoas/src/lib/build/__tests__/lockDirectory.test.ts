@@ -61,7 +61,7 @@ it('takes over the lock of a dead build whose pid now belongs to another process
   )();
 });
 
-it('lets one build at a time use the stable directory, whatever the project', async () => {
+it('lets one build at a time use the stable directory of a project', async () => {
   const temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'eoas-lock-'));
   directories.push(temporary);
   process.env.TMPDIR = temporary;
@@ -70,10 +70,11 @@ it('lets one build at a time use the stable directory, whatever the project', as
     buildLog,
     async () => {
       await expect(
-        withTemporaryDirectory(buildLog, async () => {}, '/projects/other')
-      ).rejects.toThrow('Another iOS build is already running');
+        withTemporaryDirectory(buildLog, async () => {}, '/projects/one')
+      ).rejects.toThrow('already running');
+      await withTemporaryDirectory(buildLog, async () => {}, '/projects/other');
     },
     '/projects/one'
   );
-  await withTemporaryDirectory(buildLog, async () => {}, '/projects/other');
+  await withTemporaryDirectory(buildLog, async () => {}, '/projects/one');
 });

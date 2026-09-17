@@ -54,14 +54,13 @@ export async function withTemporaryDirectory<T>(
 }
 
 // Xcode tooling caches absolute paths of the project it builds, so one project always builds at one
-// path. Builds that use it share the user's keychain search list and provisioning profiles, so one
-// runs at a time.
+// path, which one build at a time may hold.
 async function claimStableDirectory(
   project: string
 ): Promise<{ directory: string; release: () => Promise<void> }> {
   const key = createHash('sha256').update(project).digest('hex').slice(0, 12);
   const directory = path.join(os.tmpdir(), `eoas-build-${key}`);
-  const release = await lockDirectory(path.join(os.tmpdir(), 'eoas-ios-build'));
+  const release = await lockDirectory(directory);
   try {
     await fs.remove(directory);
     await fs.ensureDir(directory);
@@ -78,7 +77,7 @@ async function claimStableDirectory(
 export async function lockDirectory(directory: string): Promise<() => Promise<void>> {
   const lock = `${directory}.lock`;
   const busy = new Error(
-    `Another iOS build is already running on this machine. If none is, delete ${lock}.`
+    `Another build of this project is already running on this machine. If none is, delete ${lock}.`
   );
   const mine = `${lock}.${process.pid}.${randomUUID()}`;
   await fs.writeFile(mine, processIdentity(process.pid) ?? String(process.pid));

@@ -108,7 +108,7 @@ function iosBuild(build: IosBuild): NativeBuild {
       const { working, temporary, buildLog, secrets } = workspace;
       let signing: InstalledSigning | undefined;
       try {
-        const { scheme, profileName } = await buildLog.runBuildPhase(
+        const { scheme, installed } = await buildLog.runBuildPhase(
           BuildPhase.CONFIGURE_XCODE_PROJECT,
           async () => {
             await assertSceneLifecycle(working, build.xcodeMajor);
@@ -116,7 +116,7 @@ function iosBuild(build: IosBuild): NativeBuild {
             await assertDeviceDestination(working, scheme, build.env);
             signing = await installSigning(build.credentials, temporary);
             await configureXcodeProject(build, workspace, signing, configuration, scheme);
-            return { scheme, profileName: signing.profileName };
+            return { scheme, installed: signing };
           }
         );
         await buildLog.runBuildPhase(BuildPhase.INSTALL_PODS, async phaseLog => {
@@ -140,7 +140,7 @@ function iosBuild(build: IosBuild): NativeBuild {
           async phaseLog => {
             const archive = path.join(temporary, 'app.xcarchive');
             const exportOptions = path.join(temporary, 'exportOptions.plist');
-            await fs.writeFile(exportOptions, exportOptionsPlist(build, profileName));
+            await fs.writeFile(exportOptions, exportOptionsPlist(build, installed.profileUuid));
             const [workspaceFile] = await fg('ios/*.xcworkspace', {
               cwd: working,
               absolute: true,
@@ -191,6 +191,7 @@ function iosBuild(build: IosBuild): NativeBuild {
                 path.join(temporary, 'export'),
                 '-exportOptionsPlist',
                 exportOptions,
+                `OTHER_CODE_SIGN_FLAGS=--keychain ${installed.keychain}`,
               ]);
             } finally {
               await close();
@@ -327,7 +328,7 @@ async function setPlistString(file: string, key: string, value: string): Promise
 }
 
 // Xcode 15.3 renamed the export methods, so 16 is the first major sure to know the new names.
-function exportOptionsPlist(build: IosBuild, profileName: string): string {
+function exportOptionsPlist(build: IosBuild, profileUuid: string): string {
   const renamed = build.xcodeMajor >= 16;
   const method =
     build.ios.distribution === 'app-store'
@@ -350,7 +351,7 @@ function exportOptionsPlist(build: IosBuild, profileName: string): string {
   <key>provisioningProfiles</key>
   <dict>
     <key>${build.ios.bundleIdentifier}</key>
-    <string>${profileName}</string>
+    <string>${profileUuid}</string>
   </dict>
 </dict>
 </plist>

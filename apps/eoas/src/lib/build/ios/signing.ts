@@ -1,6 +1,6 @@
 import spawnAsync from '@expo/spawn-async';
 import { spawnSync } from 'child_process';
-import { randomBytes } from 'crypto';
+import { randomBytes, randomUUID } from 'crypto';
 import fs from 'fs-extra';
 import os from 'os';
 import path from 'path';
@@ -13,7 +13,9 @@ export interface IosCredentials {
 }
 
 export interface InstalledSigning {
+  keychain: string;
   profileName: string;
+  profileUuid: string;
   teamId: string;
   // Synchronous so it also runs from the process exit hook of an interrupted build.
   remove(): void;
@@ -41,12 +43,11 @@ export async function installSigning(
     ['cms', '-D', '-i', profile, '-o', decoded],
     'read the provisioning profile'
   );
-  const uuid = await plistValue(decoded, 'UUID');
+  const profileUuid = await plistValue(decoded, 'UUID');
   const profileName = await plistValue(decoded, 'Name');
 
   const keychain = path.join(temporary, 'eoas-build.keychain-db');
   const keychainPassword = randomBytes(24).toString('hex');
-  const searchList = await keychainSearchList();
   const installedProfiles: string[] = [];
   let removed = false;
   const remove = (): void => {
@@ -55,7 +56,7 @@ export async function installSigning(
     }
     removed = true;
     process.removeListener('exit', remove);
-    spawnSync('security', ['list-keychains', '-d', 'user', '-s', ...searchList]);
+    // Also takes the keychain out of the search list, leaving the entries of other builds alone.
     spawnSync('security', ['delete-keychain', keychain]);
     for (const installed of installedProfiles) {
       // eslint-disable-next-line node/no-sync
@@ -106,24 +107,25 @@ export async function installSigning(
       ],
       'authorize codesign to use the certificate'
     );
+    const searchList = (await keychainSearchList()).filter(entry => entry !== keychain);
     await run(
       'security',
       ['list-keychains', '-d', 'user', '-s', keychain, ...searchList],
       'register the keychain'
     );
+    // Xcode reads the profile inside the file, so each build installs and removes a file of its own.
+    const fileName = `${randomUUID()}.mobileprovision`;
     for (const directory of PROFILE_DIRECTORIES) {
-      const installed = path.join(os.homedir(), directory, `${uuid}.mobileprovision`);
-      if (!(await fs.pathExists(installed))) {
-        await fs.ensureDir(path.dirname(installed));
-        await fs.copyFile(profile, installed);
-        installedProfiles.push(installed);
-      }
+      const installed = path.join(os.homedir(), directory, fileName);
+      await fs.ensureDir(path.dirname(installed));
+      installedProfiles.push(installed);
+      await fs.copyFile(profile, installed);
     }
   } catch (error) {
     remove();
     throw error;
   }
-  return { profileName, teamId: credentials.teamId, remove };
+  return { keychain, profileName, profileUuid, teamId: credentials.teamId, remove };
 }
 
 async function keychainSearchList(): Promise<string[]> {
