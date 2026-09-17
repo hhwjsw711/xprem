@@ -5,6 +5,7 @@ import path from 'path';
 import { validate as isUuid } from 'uuid';
 
 import { BuildLog, PhaseLogger } from './log';
+import { BuildMachine, describeMachine } from './machine';
 import { BuildPhase } from './phases';
 import { BuildInputs } from './prepare';
 import { BuildServerError, request } from './server';
@@ -22,6 +23,7 @@ export interface BuildMetadata {
   gitCommit?: string;
   gitMessage?: string;
   gitDirty?: boolean;
+  machine?: BuildMachine;
   startedAt: string;
   finishedAt?: string;
   durationMs?: number;
@@ -80,6 +82,7 @@ export async function startBuildRecord(
       gitCommit,
       gitMessage: gitCommit ? (await git.getLastCommitMessageAsync())?.slice(0, 250) : undefined,
       gitDirty: gitCommit ? await git.hasUncommittedChangesAsync() : undefined,
+      machine: await describeMachine(build.toolVersions),
       startedAt,
     },
   };

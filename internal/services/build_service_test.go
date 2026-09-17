@@ -205,14 +205,15 @@ func newBuildFixture(t *testing.T) *buildFixture {
 }
 
 func (f *buildFixture) startInput() BuildStartInput {
-	return BuildStartInput{ArtifactType: "apk", Metadata: BuildStartMetadata{Profile: "production", Mode: "release", Channel: "stable", CLIVersion: "1.2.3", GitCommit: "abc123", GitMessage: "release", GitDirty: true, StartedAt: f.now.Add(-10 * time.Minute)}}
+	return BuildStartInput{ArtifactType: "apk", Metadata: BuildStartMetadata{Profile: "production", Mode: "release", Channel: "stable", CLIVersion: "1.2.3", GitCommit: "abc123", GitMessage: "release", GitDirty: true, StartedAt: f.now.Add(-10 * time.Minute),
+		Machine: &types.BuildMachine{Hostname: "ci-mac-1", OS: "macOS 15.5", Arch: "arm64", Node: "22.11.0", Tools: map[string]string{"xcode": "16.4"}, CI: "GitHub Actions", CIRunURL: "https://github.com/acme/app/actions/runs/1"}}}
 }
 
 func (f *buildFixture) registerInput(content []byte) RegisterBuildInput {
 	sum := sha256.Sum256(content)
 	start := f.startInput().Metadata
 	return RegisterBuildInput{ArtifactType: "apk", Size: int64(len(content)), SHA256: hex.EncodeToString(sum[:]), Metadata: types.BuildMetadata{
-		Profile: start.Profile, Mode: start.Mode, Channel: start.Channel, CLIVersion: start.CLIVersion, GitCommit: start.GitCommit, GitMessage: start.GitMessage, GitDirty: start.GitDirty, StartedAt: start.StartedAt,
+		Profile: start.Profile, Mode: start.Mode, Channel: start.Channel, CLIVersion: start.CLIVersion, GitCommit: start.GitCommit, GitMessage: start.GitMessage, GitDirty: start.GitDirty, Machine: start.Machine, StartedAt: start.StartedAt,
 		Version: "1.0.0", BuildNumber: "42", Fingerprint: strings.Repeat("a", 40), RuntimeVersion: "1.0.0", ExpoSDK: "54.0.0", FinishedAt: f.now.Add(-time.Minute), DurationMs: 999999,
 	}}
 }
@@ -300,14 +301,16 @@ func TestBuildStartValidation(t *testing.T) {
 	f := newBuildFixture(t)
 	ctx := context.Background()
 	for name, mutate := range map[string]func(*BuildStartInput){
-		"artifact type": func(i *BuildStartInput) { i.ArtifactType = "ipa" },
-		"profile":       func(i *BuildStartInput) { i.Metadata.Profile = "" },
-		"mode":          func(i *BuildStartInput) { i.Metadata.Mode = "production" },
-		"cli version":   func(i *BuildStartInput) { i.Metadata.CLIVersion = "" },
-		"zero start":    func(i *BuildStartInput) { i.Metadata.StartedAt = time.Time{} },
-		"future start":  func(i *BuildStartInput) { i.Metadata.StartedAt = f.now.Add(10 * time.Minute) },
-		"long channel":  func(i *BuildStartInput) { i.Metadata.Channel = strings.Repeat("c", 256) },
-		"long message":  func(i *BuildStartInput) { i.Metadata.GitMessage = strings.Repeat("m", 1001) },
+		"artifact type":  func(i *BuildStartInput) { i.ArtifactType = "ipa" },
+		"profile":        func(i *BuildStartInput) { i.Metadata.Profile = "" },
+		"mode":           func(i *BuildStartInput) { i.Metadata.Mode = "production" },
+		"cli version":    func(i *BuildStartInput) { i.Metadata.CLIVersion = "" },
+		"zero start":     func(i *BuildStartInput) { i.Metadata.StartedAt = time.Time{} },
+		"future start":   func(i *BuildStartInput) { i.Metadata.StartedAt = f.now.Add(10 * time.Minute) },
+		"long channel":   func(i *BuildStartInput) { i.Metadata.Channel = strings.Repeat("c", 256) },
+		"long message":   func(i *BuildStartInput) { i.Metadata.GitMessage = strings.Repeat("m", 1001) },
+		"long hostname":  func(i *BuildStartInput) { i.Metadata.Machine.Hostname = strings.Repeat("h", 256) },
+		"script run url": func(i *BuildStartInput) { i.Metadata.Machine.CIRunURL = "javascript:alert(1)" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			input := f.startInput()

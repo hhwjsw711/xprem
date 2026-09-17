@@ -61,10 +61,14 @@ async function prepareBuild(
     platform: 'ios',
     toolsTitle: 'Check local iOS tools',
     credentialsTitle: 'Prepare iOS signing credentials',
-    resolveTools: async (_local, phaseLog) => {
-      xcodeMajor = await resolveIosTools(message => {
-        phaseLog.info(message);
-      }, developerDir);
+    resolveTools: async (_local, phaseLog, recordTool) => {
+      xcodeMajor = await resolveIosTools(
+        message => {
+          phaseLog.info(message);
+        },
+        developerDir,
+        recordTool
+      );
       // CocoaPods refuses to run without a UTF-8 locale.
       return { LANG: 'en_US.UTF-8', ...(developerDir ? { DEVELOPER_DIR: developerDir } : {}) };
     },

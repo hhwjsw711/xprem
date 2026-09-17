@@ -320,6 +320,16 @@ export type EnvironmentRecord = {
 
 // What the CLI recorded about a local build. Never carries environment
 // variable values, only the environment name the build used.
+export type BuildMachine = {
+  hostname?: string;
+  os?: string;
+  arch?: string;
+  node?: string;
+  tools?: Record<string, string>;
+  ci?: string;
+  ciRunUrl?: string;
+};
+
 export type BuildMetadata = {
   profile: string;
   mode?: 'debug' | 'release';
@@ -335,6 +345,7 @@ export type BuildMetadata = {
   gitCommit?: string;
   gitMessage?: string;
   gitDirty?: boolean;
+  machine?: BuildMachine;
   startedAt: string;
   finishedAt?: string;
   durationMs?: number;

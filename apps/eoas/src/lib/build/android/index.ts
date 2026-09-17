@@ -63,14 +63,15 @@ async function prepareBuild(
     platform: 'android',
     toolsTitle: 'Check local Android tools',
     credentialsTitle: 'Fetch Android signing credentials',
-    resolveTools: async (local, phaseLog) => {
+    resolveTools: async (local, phaseLog, recordTool) => {
       const tools = await resolveAndroidTools(
         project,
         options,
         { ...process.env, ...local },
         message => {
           phaseLog.info(message);
-        }
+        },
+        recordTool
       );
       phaseLog.info(`Android SDK: ${tools.ANDROID_HOME}`);
       phaseLog.info(`JAVA_HOME: ${tools.JAVA_HOME}`);

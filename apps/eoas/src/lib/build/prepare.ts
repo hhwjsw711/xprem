@@ -39,6 +39,8 @@ export interface BuildInputs {
   nodeEnv: NodeEnv;
   // Paths the platform's tool check selected (JAVA_HOME, ANDROID_HOME, ...).
   toolEnv: Record<string, string>;
+  // Versions the tool check found (xcode, cocoapods, java).
+  toolVersions: Record<string, string>;
   // Environment for every tool the build spawns.
   env: NodeJS.ProcessEnv;
 }

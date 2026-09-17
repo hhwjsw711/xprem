@@ -9,7 +9,9 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net/url"
 	"os"
+	"reflect"
 	"regexp"
 	"strings"
 	"time"
@@ -68,6 +70,7 @@ type BuildStartMetadata struct {
 	GitCommit    string                `json:"gitCommit,omitempty"`
 	GitMessage   string                `json:"gitMessage,omitempty"`
 	GitDirty     bool                  `json:"gitDirty,omitempty"`
+	Machine      *types.BuildMachine   `json:"machine,omitempty"`
 	StartedAt    time.Time             `json:"startedAt"`
 }
 type BuildStartInput struct {
@@ -132,10 +135,41 @@ func (s *BuildService) validateStart(platform types.Platform, artifactType types
 	if len(m.GitMessage) > 1000 {
 		return validation.Errorf("metadata", "commit message exceeds 1000 bytes")
 	}
+	if err := validateBuildMachine(m.Machine); err != nil {
+		return err
+	}
 	if m.StartedAt.IsZero() || m.StartedAt.After(s.now().Add(buildClockSkew)) {
 		return validation.Errorf("metadata", "startedAt is required and cannot be in the future")
 	}
 	m.StartedAt = normalizeTime(m.StartedAt)
+	return nil
+}
+
+func validateBuildMachine(machine *types.BuildMachine) error {
+	if machine == nil {
+		return nil
+	}
+	if len(machine.Tools) == 0 {
+		machine.Tools = nil
+	}
+	if len(machine.Tools) > 16 {
+		return validation.Errorf("metadata.machine", "at most 16 tools are recorded")
+	}
+	values := []string{machine.Hostname, machine.OS, machine.Arch, machine.Node, machine.CI}
+	for name, version := range machine.Tools {
+		values = append(values, name, version)
+	}
+	for _, v := range values {
+		if len(v) > 255 {
+			return validation.Errorf("metadata.machine", "field exceeds 255 bytes")
+		}
+	}
+	if machine.CIRunURL != "" {
+		parsed, err := url.Parse(machine.CIRunURL)
+		if err != nil || len(machine.CIRunURL) > 2000 || (parsed.Scheme != "https" && parsed.Scheme != "http") || parsed.Host == "" {
+			return validation.Errorf("metadata.machine", "ciRunUrl must be an http or https URL")
+		}
+	}
 	return nil
 }
 
@@ -149,7 +183,7 @@ func (s *BuildService) validateFinish(startedAt time.Time, finishedAt *time.Time
 
 func (s *BuildService) validateRegister(platform types.Platform, input *RegisterBuildInput) error {
 	m := &input.Metadata
-	start := BuildStartMetadata{Profile: m.Profile, Mode: m.Mode, Distribution: m.Distribution, Environment: m.Environment, Channel: m.Channel, CLIVersion: m.CLIVersion, GitCommit: m.GitCommit, GitMessage: m.GitMessage, GitDirty: m.GitDirty, StartedAt: m.StartedAt}
+	start := BuildStartMetadata{Profile: m.Profile, Mode: m.Mode, Distribution: m.Distribution, Environment: m.Environment, Channel: m.Channel, CLIVersion: m.CLIVersion, GitCommit: m.GitCommit, GitMessage: m.GitMessage, GitDirty: m.GitDirty, Machine: m.Machine, StartedAt: m.StartedAt}
 	if err := s.validateStart(platform, input.ArtifactType, &start); err != nil {
 		return err
 	}
@@ -180,7 +214,7 @@ func (s *BuildService) validateRegister(platform types.Platform, input *Register
 
 func sameInitialInputs(a, b types.BuildRecord) bool {
 	x, y := a.Metadata, b.Metadata
-	return a.AppIdentifierID == b.AppIdentifierID && a.ArtifactType == b.ArtifactType && x.Profile == y.Profile && x.Mode == y.Mode && x.Distribution == y.Distribution && x.Environment == y.Environment && x.Channel == y.Channel && x.CLIVersion == y.CLIVersion && x.GitCommit == y.GitCommit && x.GitMessage == y.GitMessage && x.GitDirty == y.GitDirty && x.StartedAt.Equal(y.StartedAt)
+	return a.AppIdentifierID == b.AppIdentifierID && a.ArtifactType == b.ArtifactType && x.Profile == y.Profile && x.Mode == y.Mode && x.Distribution == y.Distribution && x.Environment == y.Environment && x.Channel == y.Channel && x.CLIVersion == y.CLIVersion && x.GitCommit == y.GitCommit && x.GitMessage == y.GitMessage && x.GitDirty == y.GitDirty && reflect.DeepEqual(x.Machine, y.Machine) && x.StartedAt.Equal(y.StartedAt)
 }
 
 func sameArtifact(a, b types.BuildRecord) bool {
@@ -237,7 +271,7 @@ func (s *BuildService) Start(ctx context.Context, appID, identifierID, id string
 	}
 	m := input.Metadata
 	record.Status = types.BuildStatusBuilding
-	record.Metadata = types.BuildMetadata{Profile: m.Profile, Mode: m.Mode, Distribution: m.Distribution, Environment: m.Environment, Channel: m.Channel, CLIVersion: m.CLIVersion, GitCommit: m.GitCommit, GitMessage: m.GitMessage, GitDirty: m.GitDirty, StartedAt: m.StartedAt}
+	record.Metadata = types.BuildMetadata{Profile: m.Profile, Mode: m.Mode, Distribution: m.Distribution, Environment: m.Environment, Channel: m.Channel, CLIVersion: m.CLIVersion, GitCommit: m.GitCommit, GitMessage: m.GitMessage, GitDirty: m.GitDirty, Machine: m.Machine, StartedAt: m.StartedAt}
 	existing, _, err := s.repo.Create(ctx, *record)
 	if err != nil {
 		return nil, err

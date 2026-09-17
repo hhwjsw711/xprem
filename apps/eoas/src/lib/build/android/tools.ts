@@ -16,7 +16,8 @@ export async function resolveAndroidTools(
   project: string,
   options: AndroidToolsOptions = {},
   environment: NodeJS.ProcessEnv = process.env,
-  report: (message: string) => void = () => {}
+  report: (message: string) => void = () => {},
+  recordTool: (name: string, version: string) => void = () => {}
 ): Promise<Record<string, string>> {
   if (!['darwin', 'linux'].includes(os.platform())) {
     throw new Error(
@@ -38,7 +39,8 @@ export async function resolveAndroidTools(
     project,
     options.javaHome || environment.JAVA_HOME,
     environment,
-    report
+    report,
+    recordTool
   );
   return {
     ANDROID_HOME: sdk,
@@ -94,7 +96,8 @@ async function checkJava(
   project: string,
   configuredHome: string | undefined,
   environment: NodeJS.ProcessEnv,
-  report: (message: string) => void
+  report: (message: string) => void,
+  recordTool: (name: string, version: string) => void
 ): Promise<string> {
   // is configuredHome is an absolute path path.resolve will just resolve "configureHome"
   let javaHome = configuredHome ? path.resolve(project, configuredHome) : undefined;
@@ -149,6 +152,9 @@ async function checkJava(
     );
   }
   report(`Java ${version} (JDK: ${javaHome}); project compatibility is checked by Gradle.`);
+  if (version) {
+    recordTool('java', version);
+  }
   return javaHome;
 }
 

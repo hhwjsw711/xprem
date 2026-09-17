@@ -74,6 +74,12 @@ const DetailSection = ({ title, children }: { title: string; children: ReactNode
   </section>
 );
 
+const TOOL_LABELS: Record<string, string> = {
+  xcode: 'Xcode',
+  cocoapods: 'CocoaPods',
+  java: 'Java',
+};
+
 const DetailRow = ({ label, children }: { label: string; children: ReactNode }) => (
   <div className="flex items-center justify-between gap-4 px-4 py-2.5">
     <span className="shrink-0 text-sm text-muted-foreground">{label}</span>
@@ -353,6 +359,44 @@ export const BuildDetail = () => {
               </div>
             )}
           </DetailSection>
+
+          {metadata.machine && (
+            <DetailSection title="Machine">
+              {metadata.machine.hostname && (
+                <DetailRow label="Name">
+                  <span className="truncate" title={metadata.machine.hostname}>
+                    {metadata.machine.hostname}
+                  </span>
+                </DetailRow>
+              )}
+              {metadata.machine.os && (
+                <DetailRow label="System">
+                  {[metadata.machine.os, metadata.machine.arch].filter(Boolean).join(' · ')}
+                </DetailRow>
+              )}
+              {metadata.machine.node && <DetailRow label="Node">{metadata.machine.node}</DetailRow>}
+              {Object.entries(metadata.machine.tools ?? {}).map(([tool, version]) => (
+                <DetailRow key={tool} label={TOOL_LABELS[tool] ?? tool}>
+                  {version}
+                </DetailRow>
+              ))}
+              {metadata.machine.ci && (
+                <DetailRow label="CI">
+                  {metadata.machine.ciRunUrl ? (
+                    <a
+                      href={metadata.machine.ciRunUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="underline underline-offset-2 hover:text-foreground">
+                      {metadata.machine.ci}
+                    </a>
+                  ) : (
+                    metadata.machine.ci
+                  )}
+                </DetailRow>
+              )}
+            </DetailSection>
+          )}
 
           <DetailSection title="Artifact">
             <DetailRow label="Type">{artifactLabel(build)}</DetailRow>

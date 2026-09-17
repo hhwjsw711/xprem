@@ -37,6 +37,17 @@ func (t BuildArtifactType) Platform() (Platform, error) {
 
 // BuildMetadata carries what the CLI knows about a build; the artifact and
 // timing fields stay empty until the corresponding lifecycle step reports them.
+// BuildMachine describes the computer a build ran on, as reported by the CLI.
+type BuildMachine struct {
+	Hostname string            `json:"hostname,omitempty"`
+	OS       string            `json:"os,omitempty"`
+	Arch     string            `json:"arch,omitempty"`
+	Node     string            `json:"node,omitempty"`
+	Tools    map[string]string `json:"tools,omitempty"`
+	CI       string            `json:"ci,omitempty"`
+	CIRunURL string            `json:"ciRunUrl,omitempty"`
+}
+
 type BuildMetadata struct {
 	Profile        string          `json:"profile"`
 	Mode           string          `json:"mode,omitempty"`
@@ -52,6 +63,7 @@ type BuildMetadata struct {
 	GitCommit      string          `json:"gitCommit,omitempty"`
 	GitMessage     string          `json:"gitMessage,omitempty"`
 	GitDirty       bool            `json:"gitDirty,omitempty"`
+	Machine        *BuildMachine   `json:"machine,omitempty"`
 	StartedAt      time.Time       `json:"startedAt,omitzero"`
 	FinishedAt     time.Time       `json:"finishedAt,omitzero"`
 	DurationMs     int64           `json:"durationMs,omitempty"`
