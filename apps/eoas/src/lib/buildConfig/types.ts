@@ -9,6 +9,8 @@ export interface IosProfile {
   bundleIdentifier: string;
   distribution: 'app-store' | 'ad-hoc';
   developmentClient?: boolean;
+  scheme?: string;
+  buildConfiguration?: string;
 }
 
 export interface BuildProfile {

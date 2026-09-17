@@ -33,6 +33,12 @@ describe('xprem.json contract', () => {
     expect(validateConfig(profiles({ ios }))).toEqual([]);
     expect(validateConfig(profiles({ ...profile, ios }))).toEqual([]);
     expect(validateConfig(profiles({ ios: { ...ios, developmentClient: true } }))).toEqual([]);
+    expect(
+      validateConfig(
+        profiles({ ios: { ...ios, scheme: 'MyApp-Staging', buildConfiguration: 'Staging' } })
+      )
+    ).toEqual([]);
+    expect(validateConfig(profiles({ ios: { ...ios, scheme: '' } }))).not.toEqual([]);
     expect(validateConfig(profiles({ channel: 'staging' }))).not.toEqual([]);
     expect(validateConfig(profiles({ ios: { ...ios, distribution: 'enterprise' } }))).not.toEqual(
       []

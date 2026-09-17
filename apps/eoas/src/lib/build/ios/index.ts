@@ -89,7 +89,7 @@ async function prepareBuild(
 
 function iosBuild(build: IosBuild): NativeBuild {
   const { bundleIdentifier, developmentClient, distribution } = build.ios;
-  const configuration = developmentClient ? 'Debug' : 'Release';
+  const configuration = build.ios.buildConfiguration ?? (developmentClient ? 'Debug' : 'Release');
   return {
     platform: 'ios',
     displayName: 'iOS',
@@ -112,7 +112,7 @@ function iosBuild(build: IosBuild): NativeBuild {
           BuildPhase.CONFIGURE_XCODE_PROJECT,
           async () => {
             await assertSceneLifecycle(working, build.xcodeMajor);
-            const scheme = appScheme(working);
+            const scheme = appScheme(working, build.ios.scheme);
             await assertDeviceDestination(working, scheme, build.env);
             signing = await installSigning(build.credentials, temporary);
             await configureXcodeProject(build, workspace, signing, configuration, scheme);
@@ -251,14 +251,27 @@ function xcodeOutputSummary(
   };
 }
 
-function appScheme(working: string): string {
-  const [scheme] = IOSConfig.BuildScheme.getRunnableSchemesFromXcodeproj(working)
-    .filter(candidate => candidate.osType === 'iOS')
-    .map(candidate => candidate.name);
-  if (!scheme) {
-    throw new Error('No runnable iOS scheme was found in the Xcode project.');
+// The shared scheme to build: the one of the profile, or the only one of the project.
+export function appScheme(working: string, configured?: string): string {
+  const schemes = IOSConfig.BuildScheme.getSchemesFromXcodeproj(working);
+  if (schemes.length === 0) {
+    throw new Error(
+      'No scheme was found in the Xcode project. Mark at least one scheme as "Shared" in Xcode, so that "xcodebuild -list" prints it.'
+    );
   }
-  return scheme;
+  const found = schemes.join(', ');
+  if (configured) {
+    if (!schemes.includes(configured)) {
+      throw new Error(`The Xcode project has no shared scheme "${configured}". Found: ${found}.`);
+    }
+    return configured;
+  }
+  if (schemes.length > 1) {
+    throw new Error(
+      `The Xcode project has several schemes: ${found}. Set "ios.scheme" on this profile in xprem.json.`
+    );
+  }
+  return schemes[0];
 }
 
 // Asks Xcode whether it can build for a device; a missing iOS platform otherwise fails after the pods.
@@ -309,8 +322,24 @@ async function configureXcodeProject(
   );
   const infoPlist = IOSConfig.Paths.getInfoPlistPath(working);
   await setPlistString(infoPlist, 'CFBundleVersion', String(buildNumber));
+  const targetName = await IOSConfig.BuildScheme.getApplicationTargetNameForSchemeAsync(
+    working,
+    scheme
+  );
+  const [, target] = IOSConfig.Target.findNativeTargetByName(project, targetName);
+  const configurations = IOSConfig.XcodeUtils.getBuildConfigurationsForListId(
+    project,
+    target.buildConfigurationList
+  ).map(([, item]) => item.name.replace(/^"|"$/g, ''));
+  if (!configurations.includes(configuration)) {
+    throw new Error(
+      `Target "${targetName}" has no build configuration "${configuration}". Found: ${configurations.join(
+        ', '
+      )}.`
+    );
+  }
   IOSConfig.ProvisioningProfile.setProvisioningProfileForPbxproj(working, {
-    targetName: await IOSConfig.BuildScheme.getApplicationTargetNameForSchemeAsync(working, scheme),
+    targetName,
     profileName: signing.profileName,
     appleTeamId: signing.teamId,
     buildConfiguration: configuration,

@@ -43,6 +43,10 @@ const AndroidProfileSchema = Joi.object({
     }),
   });
 
+const XcodeNameSchema = Joi.string()
+  .max(255)
+  .pattern(/^[^\u0000-\u001f\u007f-\u009f]+$/u);
+
 const IosProfileSchema = Joi.object({
   bundleIdentifier: Joi.string()
     .max(155)
@@ -50,6 +54,8 @@ const IosProfileSchema = Joi.object({
     .required(),
   distribution: Joi.string().valid('app-store', 'ad-hoc').required(),
   developmentClient: Joi.boolean(),
+  scheme: XcodeNameSchema,
+  buildConfiguration: XcodeNameSchema,
 }).when(Joi.object({ developmentClient: Joi.valid(true).required() }).unknown(), {
   then: Joi.object({ distribution: Joi.valid(Joi.override, 'ad-hoc') }),
 });
