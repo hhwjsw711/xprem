@@ -466,15 +466,50 @@ func (q *Queries) CountUpdateFailures(ctx context.Context, arg CountUpdateFailur
 	return count, err
 }
 
-const deleteApiKeyBranchRules = `-- name: DeleteApiKeyBranchRules :exec
-DELETE FROM api_key_branch_rules WHERE api_key_id = $1
+const deleteAndroidCredentialsByIdentifierID = `-- name: DeleteAndroidCredentialsByIdentifierID :execresult
+DELETE FROM android_credentials WHERE app_identifier_id = $1
+`
+
+func (q *Queries) DeleteAndroidCredentialsByIdentifierID(ctx context.Context, appIdentifierID pgtype.UUID) (pgconn.CommandTag, error) {
+	return q.db.Exec(ctx, deleteAndroidCredentialsByIdentifierID, appIdentifierID)
+}
+
+const deleteApiKeyBuildRules = `-- name: DeleteApiKeyBuildRules :exec
+DELETE FROM api_key_build_rules WHERE api_key_id = $1
+`
+
+func (q *Queries) DeleteApiKeyBuildRules(ctx context.Context, apiKeyID int64) error {
+	_, err := q.db.Exec(ctx, deleteApiKeyBuildRules, apiKeyID)
+	return err
+}
+
+const deleteApiKeyEnvironmentRules = `-- name: DeleteApiKeyEnvironmentRules :exec
+DELETE FROM api_key_environment_rules WHERE api_key_id = $1
+`
+
+func (q *Queries) DeleteApiKeyEnvironmentRules(ctx context.Context, apiKeyID int64) error {
+	_, err := q.db.Exec(ctx, deleteApiKeyEnvironmentRules, apiKeyID)
+	return err
+}
+
+const deleteApiKeySubmitRules = `-- name: DeleteApiKeySubmitRules :exec
+DELETE FROM api_key_submit_rules WHERE api_key_id = $1
+`
+
+func (q *Queries) DeleteApiKeySubmitRules(ctx context.Context, apiKeyID int64) error {
+	_, err := q.db.Exec(ctx, deleteApiKeySubmitRules, apiKeyID)
+	return err
+}
+
+const deleteApiKeyUpdateRules = `-- name: DeleteApiKeyUpdateRules :exec
+DELETE FROM api_key_update_rules WHERE api_key_id = $1
 `
 
 // The rules of one key are replaced wholesale, inside the same transaction as
 // UpdateApiKeyAccess: a partial write would leave a key granting something
 // nobody asked for.
-func (q *Queries) DeleteApiKeyBranchRules(ctx context.Context, apiKeyID int64) error {
-	_, err := q.db.Exec(ctx, deleteApiKeyBranchRules, apiKeyID)
+func (q *Queries) DeleteApiKeyUpdateRules(ctx context.Context, apiKeyID int64) error {
+	_, err := q.db.Exec(ctx, deleteApiKeyUpdateRules, apiKeyID)
 	return err
 }
 
@@ -485,6 +520,21 @@ WHERE id = $1
 
 func (q *Queries) DeleteAppByID(ctx context.Context, id pgtype.UUID) (pgconn.CommandTag, error) {
 	return q.db.Exec(ctx, deleteAppByID, id)
+}
+
+const deleteAppIdentifierByID = `-- name: DeleteAppIdentifierByID :execresult
+DELETE FROM app_identifiers
+WHERE app_identifiers.app_id = $1 AND app_identifiers.id = $2
+`
+
+type DeleteAppIdentifierByIDParams struct {
+	AppID pgtype.UUID `json:"app_id"`
+	ID    pgtype.UUID `json:"id"`
+}
+
+// Credential rows are removed atomically by their ON DELETE CASCADE FK.
+func (q *Queries) DeleteAppIdentifierByID(ctx context.Context, arg DeleteAppIdentifierByIDParams) (pgconn.CommandTag, error) {
+	return q.db.Exec(ctx, deleteAppIdentifierByID, arg.AppID, arg.ID)
 }
 
 const deleteBranchByName = `-- name: DeleteBranchByName :execresult
@@ -554,6 +604,34 @@ DELETE FROM enterprise_license
 func (q *Queries) DeleteEnterpriseLicense(ctx context.Context) error {
 	_, err := q.db.Exec(ctx, deleteEnterpriseLicense)
 	return err
+}
+
+const deleteEnvironment = `-- name: DeleteEnvironment :execresult
+DELETE FROM environments
+WHERE app_id = $1 AND name = $2
+`
+
+type DeleteEnvironmentParams struct {
+	AppID pgtype.UUID `json:"app_id"`
+	Name  string      `json:"name"`
+}
+
+func (q *Queries) DeleteEnvironment(ctx context.Context, arg DeleteEnvironmentParams) (pgconn.CommandTag, error) {
+	return q.db.Exec(ctx, deleteEnvironment, arg.AppID, arg.Name)
+}
+
+const deleteEnvironmentVar = `-- name: DeleteEnvironmentVar :execresult
+DELETE FROM environment_vars
+WHERE environment_id = $1 AND key = $2
+`
+
+type DeleteEnvironmentVarParams struct {
+	EnvironmentID pgtype.UUID `json:"environment_id"`
+	Key           string      `json:"key"`
+}
+
+func (q *Queries) DeleteEnvironmentVar(ctx context.Context, arg DeleteEnvironmentVarParams) (pgconn.CommandTag, error) {
+	return q.db.Exec(ctx, deleteEnvironmentVar, arg.EnvironmentID, arg.Key)
 }
 
 const deleteExpiredOAuthAuthorizationCodes = `-- name: DeleteExpiredOAuthAuthorizationCodes :exec
@@ -780,14 +858,14 @@ WHERE b.id = bp.branch_id
 `
 
 type FinishBundlePatchParams struct {
-	Status           string      `json:"status"`
-	Reason           *string     `json:"reason"`
-	PatchSize        *int64      `json:"patch_size"`
-	FullDownloadSize *int64      `json:"full_download_size"`
-	AppID            pgtype.UUID `json:"app_id"`
-	BranchName       string      `json:"branch_name"`
-	TargetUpdateID   int64       `json:"target_update_id"`
-	SourceUpdateID   int64       `json:"source_update_id"`
+	Status           types.BundlePatchStatus `json:"status"`
+	Reason           *string                 `json:"reason"`
+	PatchSize        *int64                  `json:"patch_size"`
+	FullDownloadSize *int64                  `json:"full_download_size"`
+	AppID            pgtype.UUID             `json:"app_id"`
+	BranchName       string                  `json:"branch_name"`
+	TargetUpdateID   int64                   `json:"target_update_id"`
+	SourceUpdateID   int64                   `json:"source_update_id"`
 }
 
 func (q *Queries) FinishBundlePatch(ctx context.Context, arg FinishBundlePatchParams) (int64, error) {
@@ -828,7 +906,7 @@ type GetActiveRolloutUpdatesParams struct {
 
 type GetActiveRolloutUpdatesRow struct {
 	ID                int64              `json:"id"`
-	Platform          string             `json:"platform"`
+	Platform          types.Platform     `json:"platform"`
 	RolloutPercentage *int32             `json:"rollout_percentage"`
 	ControlUpdateID   *int64             `json:"control_update_id"`
 	CreatedAt         pgtype.Timestamptz `json:"created_at"`
@@ -861,35 +939,95 @@ func (q *Queries) GetActiveRolloutUpdates(ctx context.Context, arg GetActiveRoll
 	return items, nil
 }
 
-const getApiKeyAccess = `-- name: GetApiKeyAccess :many
-
-SELECT k.allowed_ips, r.pattern, r.actions
-FROM api_keys k
-LEFT JOIN api_key_branch_rules r ON r.api_key_id = k.id
-WHERE k.id = $1 AND k.revoked_at IS NULL
+const getAndroidCredentialsByIdentifierID = `-- name: GetAndroidCredentialsByIdentifierID :one
+SELECT id, app_identifier_id, key_alias,
+       sealed_keystore, sealed_keystore_password, sealed_key_password,
+       sealed_google_service_account_key,
+       google_service_account_email, google_service_account_project_id,
+       created_at, updated_at
+FROM android_credentials
+WHERE app_identifier_id = $1
 `
 
+func (q *Queries) GetAndroidCredentialsByIdentifierID(ctx context.Context, appIdentifierID pgtype.UUID) (AndroidCredential, error) {
+	row := q.db.QueryRow(ctx, getAndroidCredentialsByIdentifierID, appIdentifierID)
+	var i AndroidCredential
+	err := row.Scan(
+		&i.ID,
+		&i.AppIdentifierID,
+		&i.KeyAlias,
+		&i.SealedKeystore,
+		&i.SealedKeystorePassword,
+		&i.SealedKeyPassword,
+		&i.SealedGoogleServiceAccountKey,
+		&i.GoogleServiceAccountEmail,
+		&i.GoogleServiceAccountProjectID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getApiKeyAccess = `-- name: GetApiKeyAccess :many
+
+WITH active_key AS (
+    SELECT k.id, k.app_id, k.allowed_ips
+    FROM api_keys k
+    WHERE k.id = $1 AND k.app_id = $2 AND k.revoked_at IS NULL
+), rules AS (
+    SELECT 'updates'::TEXT AS domain, r.pattern, NULL::UUID AS app_identifier_id,
+           ''::TEXT AS destination, r.actions
+    FROM api_key_update_rules r
+    JOIN active_key k ON k.id = r.api_key_id
+    UNION ALL
+    SELECT 'build'::TEXT, ''::TEXT, r.app_identifier_id, ''::TEXT, r.actions
+    FROM api_key_build_rules r
+    JOIN active_key k ON k.id = r.api_key_id AND k.app_id = r.app_id
+    JOIN app_identifiers i ON i.id = r.app_identifier_id AND i.app_id = k.app_id
+    UNION ALL
+    SELECT 'submit'::TEXT, ''::TEXT, r.app_identifier_id, r.destination, r.actions
+    FROM api_key_submit_rules r
+    JOIN active_key k ON k.id = r.api_key_id AND k.app_id = r.app_id
+    JOIN app_identifiers i ON i.id = r.app_identifier_id AND i.app_id = k.app_id
+    WHERE (i.platform = 'android' AND r.destination IN ('internal', 'alpha', 'beta', 'production'))
+       OR (i.platform = 'ios' AND r.destination = 'testflight')
+    UNION ALL
+    SELECT 'environments'::TEXT, r.pattern, NULL::UUID, ''::TEXT, ARRAY[]::TEXT[]
+    FROM api_key_environment_rules r
+    JOIN active_key k ON k.id = r.api_key_id
+)
+SELECT k.allowed_ips, COALESCE(r.domain, '')::TEXT AS domain,
+       COALESCE(r.pattern, '')::TEXT AS pattern, r.app_identifier_id,
+       COALESCE(r.destination, '')::TEXT AS destination, r.actions
+FROM active_key k
+LEFT JOIN rules r ON TRUE
+ORDER BY r.domain, r.pattern, r.app_identifier_id, r.destination
+`
+
+type GetApiKeyAccessParams struct {
+	ApiKeyID int64       `json:"api_key_id"`
+	AppID    pgtype.UUID `json:"app_id"`
+}
+
 type GetApiKeyAccessRow struct {
-	AllowedIps []netip.Prefix `json:"allowed_ips"`
-	Pattern    *string        `json:"pattern"`
-	Actions    []string       `json:"actions"`
+	AllowedIps      []netip.Prefix `json:"allowed_ips"`
+	Domain          string         `json:"domain"`
+	Pattern         string         `json:"pattern"`
+	AppIdentifierID pgtype.UUID    `json:"app_identifier_id"`
+	Destination     string         `json:"destination"`
+	Actions         []string       `json:"actions"`
 }
 
 // The queries below back the Enterprise Edition per-key access restrictions
 // (ee/apikeyrestrictions). sqlc generates a single package for the whole
 // schema, so the EE feature's SQL lives here like the enterprise license
 // queries above.
-// Enforcement read for one authenticated key on the CLI request hot path: the
-// IP allow-list, the branch-creation flag and the branch rules in one round
-// trip. A key with no rule yields a single row with a NULL pattern, which is
-// the unrestricted default.
-//
-// revoked_at IS NULL is redundant with authentication, which already refuses a
-// revoked key, and it is here anyway: this is the last read before a publish is
-// authorised, so it costs nothing to make "zero rows" mean exactly what the
-// caller treats it as, a key that may no longer act.
-func (q *Queries) GetApiKeyAccess(ctx context.Context, id int64) ([]GetApiKeyAccessRow, error) {
-	rows, err := q.db.Query(ctx, getApiKeyAccess, id)
+// Read a live key and all of its permission domains from one database snapshot.
+// Native rules must still target a registered identifier in this app, and a
+// Submit destination must match that identifier's current platform.
+// A key without rules yields one row with an empty domain; no key yields none.
+func (q *Queries) GetApiKeyAccess(ctx context.Context, arg GetApiKeyAccessParams) ([]GetApiKeyAccessRow, error) {
+	rows, err := q.db.Query(ctx, getApiKeyAccess, arg.ApiKeyID, arg.AppID)
 	if err != nil {
 		return nil, err
 	}
@@ -897,7 +1035,14 @@ func (q *Queries) GetApiKeyAccess(ctx context.Context, id int64) ([]GetApiKeyAcc
 	var items []GetApiKeyAccessRow
 	for rows.Next() {
 		var i GetApiKeyAccessRow
-		if err := rows.Scan(&i.AllowedIps, &i.Pattern, &i.Actions); err != nil {
+		if err := rows.Scan(
+			&i.AllowedIps,
+			&i.Domain,
+			&i.Pattern,
+			&i.AppIdentifierID,
+			&i.Destination,
+			&i.Actions,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -911,7 +1056,7 @@ func (q *Queries) GetApiKeyAccess(ctx context.Context, id int64) ([]GetApiKeyAcc
 const getApiKeyAccessByAppID = `-- name: GetApiKeyAccessByAppID :many
 SELECT k.id, k.allowed_ips, r.pattern, r.actions
 FROM api_keys k
-LEFT JOIN api_key_branch_rules r ON r.api_key_id = k.id
+LEFT JOIN api_key_update_rules r ON r.api_key_id = k.id
 WHERE k.app_id = $1 AND k.revoked_at IS NULL
 ORDER BY k.id, r.id
 `
@@ -923,8 +1068,8 @@ type GetApiKeyAccessByAppIDRow struct {
 	Actions    []string       `json:"actions"`
 }
 
-// Same shape for the dashboard, over every live key of one app. Ordered so
-// the caller can fold consecutive rows into one key without a map.
+// Updates rules for the dashboard, over every live key of one app. Ordered
+// so the caller can fold consecutive rows into one key without a map.
 func (q *Queries) GetApiKeyAccessByAppID(ctx context.Context, appID pgtype.UUID) ([]GetApiKeyAccessByAppIDRow, error) {
 	rows, err := q.db.Query(ctx, getApiKeyAccessByAppID, appID)
 	if err != nil {
@@ -940,6 +1085,66 @@ func (q *Queries) GetApiKeyAccessByAppID(ctx context.Context, appID pgtype.UUID)
 			&i.Pattern,
 			&i.Actions,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getApiKeyBuildRulesByAppID = `-- name: GetApiKeyBuildRulesByAppID :many
+SELECT r.api_key_id, r.app_identifier_id, r.actions
+FROM api_key_build_rules r JOIN api_keys k ON k.id = r.api_key_id
+WHERE r.app_id = $1 AND k.revoked_at IS NULL
+ORDER BY r.api_key_id, r.app_identifier_id
+`
+
+type GetApiKeyBuildRulesByAppIDRow struct {
+	ApiKeyID        int64       `json:"api_key_id"`
+	AppIdentifierID pgtype.UUID `json:"app_identifier_id"`
+	Actions         []string    `json:"actions"`
+}
+
+func (q *Queries) GetApiKeyBuildRulesByAppID(ctx context.Context, appID pgtype.UUID) ([]GetApiKeyBuildRulesByAppIDRow, error) {
+	rows, err := q.db.Query(ctx, getApiKeyBuildRulesByAppID, appID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetApiKeyBuildRulesByAppIDRow
+	for rows.Next() {
+		var i GetApiKeyBuildRulesByAppIDRow
+		if err := rows.Scan(&i.ApiKeyID, &i.AppIdentifierID, &i.Actions); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getApiKeyEnvironmentRulesByAppID = `-- name: GetApiKeyEnvironmentRulesByAppID :many
+SELECT r.api_key_id, r.pattern
+FROM api_key_environment_rules r JOIN api_keys k ON k.id = r.api_key_id
+WHERE k.app_id = $1 AND k.revoked_at IS NULL
+ORDER BY r.api_key_id, r.pattern
+`
+
+func (q *Queries) GetApiKeyEnvironmentRulesByAppID(ctx context.Context, appID pgtype.UUID) ([]ApiKeyEnvironmentRule, error) {
+	rows, err := q.db.Query(ctx, getApiKeyEnvironmentRulesByAppID, appID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ApiKeyEnvironmentRule
+	for rows.Next() {
+		var i ApiKeyEnvironmentRule
+		if err := rows.Scan(&i.ApiKeyID, &i.Pattern); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -966,6 +1171,49 @@ func (q *Queries) GetApiKeyNameByID(ctx context.Context, arg GetApiKeyNameByIDPa
 	var name string
 	err := row.Scan(&name)
 	return name, err
+}
+
+const getApiKeySubmitRulesByAppID = `-- name: GetApiKeySubmitRulesByAppID :many
+SELECT r.api_key_id, r.app_identifier_id, r.destination, r.actions
+FROM api_key_submit_rules r
+JOIN api_keys k ON k.id = r.api_key_id AND k.app_id = r.app_id
+JOIN app_identifiers i ON i.id = r.app_identifier_id AND i.app_id = k.app_id
+WHERE r.app_id = $1 AND k.revoked_at IS NULL
+  AND ((i.platform = 'android' AND r.destination IN ('internal', 'alpha', 'beta', 'production'))
+    OR (i.platform = 'ios' AND r.destination = 'testflight'))
+ORDER BY r.api_key_id, r.app_identifier_id, r.destination
+`
+
+type GetApiKeySubmitRulesByAppIDRow struct {
+	ApiKeyID        int64       `json:"api_key_id"`
+	AppIdentifierID pgtype.UUID `json:"app_identifier_id"`
+	Destination     string      `json:"destination"`
+	Actions         []string    `json:"actions"`
+}
+
+func (q *Queries) GetApiKeySubmitRulesByAppID(ctx context.Context, appID pgtype.UUID) ([]GetApiKeySubmitRulesByAppIDRow, error) {
+	rows, err := q.db.Query(ctx, getApiKeySubmitRulesByAppID, appID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetApiKeySubmitRulesByAppIDRow
+	for rows.Next() {
+		var i GetApiKeySubmitRulesByAppIDRow
+		if err := rows.Scan(
+			&i.ApiKeyID,
+			&i.AppIdentifierID,
+			&i.Destination,
+			&i.Actions,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const getApiKeysMetadataByAppID = `-- name: GetApiKeysMetadataByAppID :many
@@ -1032,6 +1280,115 @@ func (q *Queries) GetAppByID(ctx context.Context, id pgtype.UUID) (App, error) {
 		&i.GitUrl,
 	)
 	return i, err
+}
+
+const getAppIdentifierByID = `-- name: GetAppIdentifierByID :one
+SELECT id, platform, identifier, build_number
+FROM app_identifiers
+WHERE app_id = $1 AND id = $2
+`
+
+type GetAppIdentifierByIDParams struct {
+	AppID pgtype.UUID `json:"app_id"`
+	ID    pgtype.UUID `json:"id"`
+}
+
+type GetAppIdentifierByIDRow struct {
+	ID          pgtype.UUID    `json:"id"`
+	Platform    types.Platform `json:"platform"`
+	Identifier  string         `json:"identifier"`
+	BuildNumber string         `json:"build_number"`
+}
+
+func (q *Queries) GetAppIdentifierByID(ctx context.Context, arg GetAppIdentifierByIDParams) (GetAppIdentifierByIDRow, error) {
+	row := q.db.QueryRow(ctx, getAppIdentifierByID, arg.AppID, arg.ID)
+	var i GetAppIdentifierByIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.Platform,
+		&i.Identifier,
+		&i.BuildNumber,
+	)
+	return i, err
+}
+
+const getAppIdentifierByPlatformAndIdentifier = `-- name: GetAppIdentifierByPlatformAndIdentifier :one
+SELECT id, platform, identifier, build_number
+FROM app_identifiers
+WHERE app_id = $1 AND platform = $2 AND identifier = $3
+`
+
+type GetAppIdentifierByPlatformAndIdentifierParams struct {
+	AppID      pgtype.UUID    `json:"app_id"`
+	Platform   types.Platform `json:"platform"`
+	Identifier string         `json:"identifier"`
+}
+
+type GetAppIdentifierByPlatformAndIdentifierRow struct {
+	ID          pgtype.UUID    `json:"id"`
+	Platform    types.Platform `json:"platform"`
+	Identifier  string         `json:"identifier"`
+	BuildNumber string         `json:"build_number"`
+}
+
+func (q *Queries) GetAppIdentifierByPlatformAndIdentifier(ctx context.Context, arg GetAppIdentifierByPlatformAndIdentifierParams) (GetAppIdentifierByPlatformAndIdentifierRow, error) {
+	row := q.db.QueryRow(ctx, getAppIdentifierByPlatformAndIdentifier, arg.AppID, arg.Platform, arg.Identifier)
+	var i GetAppIdentifierByPlatformAndIdentifierRow
+	err := row.Scan(
+		&i.ID,
+		&i.Platform,
+		&i.Identifier,
+		&i.BuildNumber,
+	)
+	return i, err
+}
+
+const getAppIdentifiersByAppID = `-- name: GetAppIdentifiersByAppID :many
+SELECT ai.id, ai.platform, ai.identifier, ai.build_number, ai.created_at,
+       (ac.id IS NOT NULL)::bool AS has_android_credentials,
+       EXISTS (SELECT 1 FROM app_store_connect_api_keys k WHERE k.app_id = ai.app_id) AS has_ios_credentials
+FROM app_identifiers ai
+LEFT JOIN android_credentials ac ON ac.app_identifier_id = ai.id
+WHERE ai.app_id = $1
+ORDER BY ai.platform ASC, ai.identifier ASC
+`
+
+type GetAppIdentifiersByAppIDRow struct {
+	ID                    pgtype.UUID        `json:"id"`
+	Platform              types.Platform     `json:"platform"`
+	Identifier            string             `json:"identifier"`
+	BuildNumber           string             `json:"build_number"`
+	CreatedAt             pgtype.Timestamptz `json:"created_at"`
+	HasAndroidCredentials bool               `json:"has_android_credentials"`
+	HasIosCredentials     bool               `json:"has_ios_credentials"`
+}
+
+func (q *Queries) GetAppIdentifiersByAppID(ctx context.Context, appID pgtype.UUID) ([]GetAppIdentifiersByAppIDRow, error) {
+	rows, err := q.db.Query(ctx, getAppIdentifiersByAppID, appID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetAppIdentifiersByAppIDRow
+	for rows.Next() {
+		var i GetAppIdentifiersByAppIDRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Platform,
+			&i.Identifier,
+			&i.BuildNumber,
+			&i.CreatedAt,
+			&i.HasAndroidCredentials,
+			&i.HasIosCredentials,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const getApps = `-- name: GetApps :many
@@ -1269,19 +1626,19 @@ type GetBundlePatchesByTargetParams struct {
 }
 
 type GetBundlePatchesByTargetRow struct {
-	TargetUpdateID   int64              `json:"target_update_id"`
-	TargetUpdateUuid pgtype.UUID        `json:"target_update_uuid"`
-	SourceUpdateID   int64              `json:"source_update_id"`
-	SourceUpdateUuid pgtype.UUID        `json:"source_update_uuid"`
-	SourceCommitHash string             `json:"source_commit_hash"`
-	SourceMessage    *string            `json:"source_message"`
-	SourceCreatedAt  pgtype.Timestamptz `json:"source_created_at"`
-	Status           string             `json:"status"`
-	Reason           *string            `json:"reason"`
-	PatchSize        *int64             `json:"patch_size"`
-	FullDownloadSize *int64             `json:"full_download_size"`
-	Attempts         int32              `json:"attempts"`
-	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
+	TargetUpdateID   int64                   `json:"target_update_id"`
+	TargetUpdateUuid pgtype.UUID             `json:"target_update_uuid"`
+	SourceUpdateID   int64                   `json:"source_update_id"`
+	SourceUpdateUuid pgtype.UUID             `json:"source_update_uuid"`
+	SourceCommitHash string                  `json:"source_commit_hash"`
+	SourceMessage    *string                 `json:"source_message"`
+	SourceCreatedAt  pgtype.Timestamptz      `json:"source_created_at"`
+	Status           types.BundlePatchStatus `json:"status"`
+	Reason           *string                 `json:"reason"`
+	PatchSize        *int64                  `json:"patch_size"`
+	FullDownloadSize *int64                  `json:"full_download_size"`
+	Attempts         int32                   `json:"attempts"`
+	UpdatedAt        pgtype.Timestamptz      `json:"updated_at"`
 }
 
 func (q *Queries) GetBundlePatchesByTarget(ctx context.Context, arg GetBundlePatchesByTargetParams) ([]GetBundlePatchesByTargetRow, error) {
@@ -1522,7 +1879,7 @@ current_updates AS (
         u.created_at DESC,
         u.id DESC
 )
-SELECT channels.id, channels.app_id, channels.branch_id, channels.name, channels.created_at, channels.branch_surfing_enabled, channels.branch_surfing_pattern, branches.name as branch_name,
+SELECT channels.id, channels.app_id, channels.branch_id, channels.name, channels.created_at, channels.branch_surfing_enabled, channels.branch_surfing_pattern, channels.environment_id, branches.name as branch_name,
     cr.id AS rollout_id,
     rb.name AS rollout_branch_name,
     cr.percentage AS rollout_percentage,
@@ -1535,9 +1892,11 @@ SELECT channels.id, channels.app_id, channels.branch_id, channels.name, channels
     rcu.runtime_version AS rollout_branch_current_runtime_version,
     rcu.commit_hash AS rollout_branch_current_commit_hash,
     rcu.created_at AS rollout_branch_current_update_created_at,
-    rcu.rollout_percentage AS rollout_branch_current_rollout_percentage
+    rcu.rollout_percentage AS rollout_branch_current_rollout_percentage,
+    env.name AS environment_name
 FROM channels
 LEFT JOIN branches ON channels.branch_id = branches.id AND branches.app_id = channels.app_id
+LEFT JOIN environments env ON env.id = channels.environment_id
 LEFT JOIN channel_rollouts cr ON cr.channel_id = channels.id
 LEFT JOIN branches rb ON cr.rollout_branch_id = rb.id
 LEFT JOIN current_updates bcu ON bcu.branch_id = channels.branch_id
@@ -1554,6 +1913,7 @@ type GetChannelsByAppIDRow struct {
 	CreatedAt                             pgtype.Timestamptz `json:"created_at"`
 	BranchSurfingEnabled                  bool               `json:"branch_surfing_enabled"`
 	BranchSurfingPattern                  string             `json:"branch_surfing_pattern"`
+	EnvironmentID                         pgtype.UUID        `json:"environment_id"`
 	BranchName                            *string            `json:"branch_name"`
 	RolloutID                             pgtype.UUID        `json:"rollout_id"`
 	RolloutBranchName                     *string            `json:"rollout_branch_name"`
@@ -1568,6 +1928,7 @@ type GetChannelsByAppIDRow struct {
 	RolloutBranchCurrentCommitHash        *string            `json:"rollout_branch_current_commit_hash"`
 	RolloutBranchCurrentUpdateCreatedAt   pgtype.Timestamptz `json:"rollout_branch_current_update_created_at"`
 	RolloutBranchCurrentRolloutPercentage *int32             `json:"rollout_branch_current_rollout_percentage"`
+	EnvironmentName                       *string            `json:"environment_name"`
 }
 
 func (q *Queries) GetChannelsByAppID(ctx context.Context, appID pgtype.UUID) ([]GetChannelsByAppIDRow, error) {
@@ -1587,6 +1948,7 @@ func (q *Queries) GetChannelsByAppID(ctx context.Context, appID pgtype.UUID) ([]
 			&i.CreatedAt,
 			&i.BranchSurfingEnabled,
 			&i.BranchSurfingPattern,
+			&i.EnvironmentID,
 			&i.BranchName,
 			&i.RolloutID,
 			&i.RolloutBranchName,
@@ -1601,6 +1963,7 @@ func (q *Queries) GetChannelsByAppID(ctx context.Context, appID pgtype.UUID) ([]
 			&i.RolloutBranchCurrentCommitHash,
 			&i.RolloutBranchCurrentUpdateCreatedAt,
 			&i.RolloutBranchCurrentRolloutPercentage,
+			&i.EnvironmentName,
 		); err != nil {
 			return nil, err
 		}
@@ -1716,6 +2079,24 @@ func (q *Queries) GetEnterpriseLicense(ctx context.Context) (EnterpriseLicense, 
 	return i, err
 }
 
+const getEnvironmentIDByName = `-- name: GetEnvironmentIDByName :one
+SELECT id
+FROM environments
+WHERE app_id = $1 AND name = $2
+`
+
+type GetEnvironmentIDByNameParams struct {
+	AppID pgtype.UUID `json:"app_id"`
+	Name  string      `json:"name"`
+}
+
+func (q *Queries) GetEnvironmentIDByName(ctx context.Context, arg GetEnvironmentIDByNameParams) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, getEnvironmentIDByName, arg.AppID, arg.Name)
+	var id pgtype.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
 const getLatestUpdate = `-- name: GetLatestUpdate :one
 SELECT 
     u.id,
@@ -1740,10 +2121,10 @@ LIMIT 1
 `
 
 type GetLatestUpdateParams struct {
-	AppID    pgtype.UUID `json:"app_id"`
-	Name     string      `json:"name"`
-	Version  string      `json:"version"`
-	Platform string      `json:"platform"`
+	AppID    pgtype.UUID    `json:"app_id"`
+	Name     string         `json:"name"`
+	Version  string         `json:"version"`
+	Platform types.Platform `json:"platform"`
 }
 
 type GetLatestUpdateRow struct {
@@ -1754,7 +2135,7 @@ type GetLatestUpdateRow struct {
 	UpdateType       int32              `json:"update_type"`
 	CommitHash       string             `json:"commit_hash"`
 	Message          *string            `json:"message"`
-	Platform         string             `json:"platform"`
+	Platform         types.Platform     `json:"platform"`
 	CreatedAt        pgtype.Timestamptz `json:"created_at"`
 }
 
@@ -1811,10 +2192,10 @@ LIMIT 1
 `
 
 type GetLatestUpdateWithRolloutParams struct {
-	AppID    pgtype.UUID `json:"app_id"`
-	Name     string      `json:"name"`
-	Version  string      `json:"version"`
-	Platform string      `json:"platform"`
+	AppID    pgtype.UUID    `json:"app_id"`
+	Name     string         `json:"name"`
+	Version  string         `json:"version"`
+	Platform types.Platform `json:"platform"`
 }
 
 type GetLatestUpdateWithRolloutRow struct {
@@ -1825,7 +2206,7 @@ type GetLatestUpdateWithRolloutRow struct {
 	UpdateType        int32              `json:"update_type"`
 	CommitHash        string             `json:"commit_hash"`
 	Message           *string            `json:"message"`
-	Platform          string             `json:"platform"`
+	Platform          types.Platform     `json:"platform"`
 	CreatedAt         pgtype.Timestamptz `json:"created_at"`
 	RolloutPercentage *int32             `json:"rollout_percentage"`
 	ControlUpdateID   *int64             `json:"control_update_id"`
@@ -1938,7 +2319,7 @@ type GetPublishGroupsPageRow struct {
 	NewestID     int64              `json:"newest_id"`
 	ID           int64              `json:"id"`
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
-	Platform     string             `json:"platform"`
+	Platform     types.Platform     `json:"platform"`
 	CommitHash   string             `json:"commit_hash"`
 	Message      *string            `json:"message"`
 }
@@ -2147,6 +2528,24 @@ func (q *Queries) GetSSOConfig(ctx context.Context) (SsoConfig, error) {
 	return i, err
 }
 
+const getSealedEnvironmentVarValue = `-- name: GetSealedEnvironmentVarValue :one
+SELECT sealed_value
+FROM environment_vars
+WHERE environment_id = $1 AND key = $2
+`
+
+type GetSealedEnvironmentVarValueParams struct {
+	EnvironmentID pgtype.UUID `json:"environment_id"`
+	Key           string      `json:"key"`
+}
+
+func (q *Queries) GetSealedEnvironmentVarValue(ctx context.Context, arg GetSealedEnvironmentVarValueParams) (string, error) {
+	row := q.db.QueryRow(ctx, getSealedEnvironmentVarValue, arg.EnvironmentID, arg.Key)
+	var sealed_value string
+	err := row.Scan(&sealed_value)
+	return sealed_value, err
+}
+
 const getServerInstanceID = `-- name: GetServerInstanceID :one
 SELECT id FROM server_instance
 `
@@ -2253,7 +2652,7 @@ type GetUpdateByBranchNameAndRuntimeRow struct {
 	UpdateType        int32              `json:"update_type"`
 	CommitHash        string             `json:"commit_hash"`
 	Message           *string            `json:"message"`
-	Platform          string             `json:"platform"`
+	Platform          types.Platform     `json:"platform"`
 	CreatedAt         pgtype.Timestamptz `json:"created_at"`
 	RolloutPercentage *int32             `json:"rollout_percentage"`
 	ControlUpdateID   *int64             `json:"control_update_id"`
@@ -2316,7 +2715,7 @@ type GetUpdateByUUIDRow struct {
 	UpdateType        int32              `json:"update_type"`
 	CommitHash        string             `json:"commit_hash"`
 	Message           *string            `json:"message"`
-	Platform          string             `json:"platform"`
+	Platform          types.Platform     `json:"platform"`
 	CreatedAt         pgtype.Timestamptz `json:"created_at"`
 	RolloutPercentage *int32             `json:"rollout_percentage"`
 	ControlUpdateID   *int64             `json:"control_update_id"`
@@ -2417,7 +2816,7 @@ type GetUpdateFeedRow struct {
 	UpdateType        int32              `json:"update_type"`
 	CreatedAt         pgtype.Timestamptz `json:"created_at"`
 	CommitHash        string             `json:"commit_hash"`
-	Platform          string             `json:"platform"`
+	Platform          types.Platform     `json:"platform"`
 	Message           *string            `json:"message"`
 	RolloutPercentage *int32             `json:"rollout_percentage"`
 	ControlUpdateID   *int64             `json:"control_update_id"`
@@ -2492,11 +2891,11 @@ type GetUpdateMetadataParams struct {
 }
 
 type GetUpdateMetadataRow struct {
-	ID         int64       `json:"id"`
-	UpdateUuid pgtype.UUID `json:"update_uuid"`
-	Platform   string      `json:"platform"`
-	CommitHash string      `json:"commit_hash"`
-	Message    *string     `json:"message"`
+	ID         int64          `json:"id"`
+	UpdateUuid pgtype.UUID    `json:"update_uuid"`
+	Platform   types.Platform `json:"platform"`
+	CommitHash string         `json:"commit_hash"`
+	Message    *string        `json:"message"`
 }
 
 func (q *Queries) GetUpdateMetadata(ctx context.Context, arg GetUpdateMetadataParams) (GetUpdateMetadataRow, error) {
@@ -2588,7 +2987,7 @@ type GetUpdatesByByBranchNameAndRuntimeVersionRow struct {
 	UpdateType        int32              `json:"update_type"`
 	CreatedAt         pgtype.Timestamptz `json:"created_at"`
 	CommitHash        string             `json:"commit_hash"`
-	Platform          string             `json:"platform"`
+	Platform          types.Platform     `json:"platform"`
 	Message           *string            `json:"message"`
 	CheckedAt         pgtype.Timestamptz `json:"checked_at"`
 	RolloutPercentage *int32             `json:"rollout_percentage"`
@@ -2649,9 +3048,9 @@ type GetUpdatesByPublishGroupParams struct {
 }
 
 type GetUpdatesByPublishGroupRow struct {
-	ID         int64  `json:"id"`
-	Platform   string `json:"platform"`
-	CommitHash string `json:"commit_hash"`
+	ID         int64          `json:"id"`
+	Platform   types.Platform `json:"platform"`
+	CommitHash string         `json:"commit_hash"`
 }
 
 // The members of one publish group on a branch and runtime version, for the
@@ -2749,7 +3148,7 @@ type GetUpdatesPageByBranchNameAndRuntimeVersionRow struct {
 	UpdateType        int32              `json:"update_type"`
 	CreatedAt         pgtype.Timestamptz `json:"created_at"`
 	CommitHash        string             `json:"commit_hash"`
-	Platform          string             `json:"platform"`
+	Platform          types.Platform     `json:"platform"`
 	Message           *string            `json:"message"`
 	CheckedAt         pgtype.Timestamptz `json:"checked_at"`
 	RolloutPercentage *int32             `json:"rollout_percentage"`
@@ -3011,7 +3410,7 @@ type ImportUpdateParams struct {
 	Name         string                    `json:"name"`
 	Version      string                    `json:"version"`
 	UpdateType   int32                     `json:"update_type"`
-	Platform     string                    `json:"platform"`
+	Platform     types.Platform            `json:"platform"`
 	CommitHash   string                    `json:"commit_hash"`
 	Message      *string                   `json:"message"`
 	CheckedAt    pgtype.Timestamptz        `json:"checked_at"`
@@ -3070,19 +3469,80 @@ func (q *Queries) InsertApiKey(ctx context.Context, arg InsertApiKeyParams) (int
 	return id, err
 }
 
-const insertApiKeyBranchRule = `-- name: InsertApiKeyBranchRule :exec
-INSERT INTO api_key_branch_rules (api_key_id, pattern, actions)
+const insertApiKeyBuildRule = `-- name: InsertApiKeyBuildRule :exec
+INSERT INTO api_key_build_rules (api_key_id, app_id, app_identifier_id, actions)
+VALUES ($1, $2, $3, $4)
+`
+
+type InsertApiKeyBuildRuleParams struct {
+	ApiKeyID        int64       `json:"api_key_id"`
+	AppID           pgtype.UUID `json:"app_id"`
+	AppIdentifierID pgtype.UUID `json:"app_identifier_id"`
+	Actions         []string    `json:"actions"`
+}
+
+func (q *Queries) InsertApiKeyBuildRule(ctx context.Context, arg InsertApiKeyBuildRuleParams) error {
+	_, err := q.db.Exec(ctx, insertApiKeyBuildRule,
+		arg.ApiKeyID,
+		arg.AppID,
+		arg.AppIdentifierID,
+		arg.Actions,
+	)
+	return err
+}
+
+const insertApiKeyEnvironmentRule = `-- name: InsertApiKeyEnvironmentRule :exec
+INSERT INTO api_key_environment_rules (api_key_id, pattern)
+VALUES ($1, $2)
+`
+
+type InsertApiKeyEnvironmentRuleParams struct {
+	ApiKeyID int64  `json:"api_key_id"`
+	Pattern  string `json:"pattern"`
+}
+
+func (q *Queries) InsertApiKeyEnvironmentRule(ctx context.Context, arg InsertApiKeyEnvironmentRuleParams) error {
+	_, err := q.db.Exec(ctx, insertApiKeyEnvironmentRule, arg.ApiKeyID, arg.Pattern)
+	return err
+}
+
+const insertApiKeySubmitRule = `-- name: InsertApiKeySubmitRule :exec
+INSERT INTO api_key_submit_rules (api_key_id, app_id, app_identifier_id, destination, actions)
+VALUES ($1, $2, $3, $4, $5)
+`
+
+type InsertApiKeySubmitRuleParams struct {
+	ApiKeyID        int64       `json:"api_key_id"`
+	AppID           pgtype.UUID `json:"app_id"`
+	AppIdentifierID pgtype.UUID `json:"app_identifier_id"`
+	Destination     string      `json:"destination"`
+	Actions         []string    `json:"actions"`
+}
+
+func (q *Queries) InsertApiKeySubmitRule(ctx context.Context, arg InsertApiKeySubmitRuleParams) error {
+	_, err := q.db.Exec(ctx, insertApiKeySubmitRule,
+		arg.ApiKeyID,
+		arg.AppID,
+		arg.AppIdentifierID,
+		arg.Destination,
+		arg.Actions,
+	)
+	return err
+}
+
+const insertApiKeyUpdateRule = `-- name: InsertApiKeyUpdateRule :exec
+INSERT INTO api_key_update_rules (api_key_id, pattern, actions)
 VALUES ($1, $2, $3)
 `
 
-type InsertApiKeyBranchRuleParams struct {
+type InsertApiKeyUpdateRuleParams struct {
 	ApiKeyID int64    `json:"api_key_id"`
 	Pattern  string   `json:"pattern"`
 	Actions  []string `json:"actions"`
 }
 
-func (q *Queries) InsertApiKeyBranchRule(ctx context.Context, arg InsertApiKeyBranchRuleParams) error {
-	_, err := q.db.Exec(ctx, insertApiKeyBranchRule, arg.ApiKeyID, arg.Pattern, arg.Actions)
+func (q *Queries) InsertApiKeyUpdateRule(ctx context.Context, arg InsertApiKeyUpdateRuleParams) error {
+	_, err := q.db.Exec(ctx, insertApiKeyUpdateRule, arg.ApiKeyID, arg.Pattern, arg.Actions)
 	return err
 }
 
@@ -3115,6 +3575,31 @@ func (q *Queries) InsertApp(ctx context.Context, arg InsertAppParams) (pgtype.UU
 		arg.PathPrivateKey,
 		arg.AwsSecretIDPublic,
 		arg.AwsSecretIDPrivate,
+	)
+	var id pgtype.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
+const insertAppIdentifier = `-- name: InsertAppIdentifier :one
+INSERT INTO app_identifiers (id, app_id, platform, identifier)
+VALUES ($1, $2, $3, $4)
+RETURNING id
+`
+
+type InsertAppIdentifierParams struct {
+	ID         pgtype.UUID    `json:"id"`
+	AppID      pgtype.UUID    `json:"app_id"`
+	Platform   types.Platform `json:"platform"`
+	Identifier string         `json:"identifier"`
+}
+
+func (q *Queries) InsertAppIdentifier(ctx context.Context, arg InsertAppIdentifierParams) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, insertAppIdentifier,
+		arg.ID,
+		arg.AppID,
+		arg.Platform,
+		arg.Identifier,
 	)
 	var id pgtype.UUID
 	err := row.Scan(&id)
@@ -3289,6 +3774,25 @@ func (q *Queries) InsertChannelRollout(ctx context.Context, arg InsertChannelRol
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const insertEnvironment = `-- name: InsertEnvironment :one
+INSERT INTO environments (id, app_id, name)
+VALUES ($1, $2, $3)
+RETURNING id
+`
+
+type InsertEnvironmentParams struct {
+	ID    pgtype.UUID `json:"id"`
+	AppID pgtype.UUID `json:"app_id"`
+	Name  string      `json:"name"`
+}
+
+func (q *Queries) InsertEnvironment(ctx context.Context, arg InsertEnvironmentParams) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, insertEnvironment, arg.ID, arg.AppID, arg.Name)
+	var id pgtype.UUID
+	err := row.Scan(&id)
+	return id, err
 }
 
 const insertOAuthAuthorizationCode = `-- name: InsertOAuthAuthorizationCode :exec
@@ -3485,20 +3989,20 @@ RETURNING
 `
 
 type InsertUpdateParams struct {
-	ID           int64       `json:"id"`
-	Name         string      `json:"name"`
-	AppID        pgtype.UUID `json:"app_id"`
-	Version      string      `json:"version"`
-	UpdateType   int32       `json:"update_type"`
-	Platform     string      `json:"platform"`
-	CommitHash   string      `json:"commit_hash"`
-	Message      *string     `json:"message"`
-	PublishGroup pgtype.UUID `json:"publish_group"`
+	ID           int64          `json:"id"`
+	Name         string         `json:"name"`
+	AppID        pgtype.UUID    `json:"app_id"`
+	Version      string         `json:"version"`
+	UpdateType   int32          `json:"update_type"`
+	Platform     types.Platform `json:"platform"`
+	CommitHash   string         `json:"commit_hash"`
+	Message      *string        `json:"message"`
+	PublishGroup pgtype.UUID    `json:"publish_group"`
 }
 
 type InsertUpdateRow struct {
 	ID             int64              `json:"id"`
-	Platform       string             `json:"platform"`
+	Platform       types.Platform     `json:"platform"`
 	CommitHash     string             `json:"commit_hash"`
 	Message        *string            `json:"message"`
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
@@ -3594,21 +4098,21 @@ RETURNING
 `
 
 type InsertUpdateWithRolloutParams struct {
-	ID                int64       `json:"id"`
-	Name              string      `json:"name"`
-	AppID             pgtype.UUID `json:"app_id"`
-	Version           string      `json:"version"`
-	UpdateType        int32       `json:"update_type"`
-	Platform          string      `json:"platform"`
-	CommitHash        string      `json:"commit_hash"`
-	Message           *string     `json:"message"`
-	RolloutPercentage *int32      `json:"rollout_percentage"`
-	PublishGroup      pgtype.UUID `json:"publish_group"`
+	ID                int64          `json:"id"`
+	Name              string         `json:"name"`
+	AppID             pgtype.UUID    `json:"app_id"`
+	Version           string         `json:"version"`
+	UpdateType        int32          `json:"update_type"`
+	Platform          types.Platform `json:"platform"`
+	CommitHash        string         `json:"commit_hash"`
+	Message           *string        `json:"message"`
+	RolloutPercentage *int32         `json:"rollout_percentage"`
+	PublishGroup      pgtype.UUID    `json:"publish_group"`
 }
 
 type InsertUpdateWithRolloutRow struct {
 	ID                int64              `json:"id"`
-	Platform          string             `json:"platform"`
+	Platform          types.Platform     `json:"platform"`
 	CommitHash        string             `json:"commit_hash"`
 	Message           *string            `json:"message"`
 	CreatedAt         pgtype.Timestamptz `json:"created_at"`
@@ -3749,6 +4253,47 @@ func (q *Queries) ListAccessibleAppIDs(ctx context.Context, userID pgtype.UUID) 
 			return nil, err
 		}
 		items = append(items, app_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listApiKeysOnlyRestrictedToAppIdentifier = `-- name: ListApiKeysOnlyRestrictedToAppIdentifier :many
+SELECT k.name
+FROM api_keys k
+WHERE k.app_id = $1::uuid
+  AND k.revoked_at IS NULL
+  AND (
+    (EXISTS (SELECT 1 FROM api_key_build_rules r WHERE r.api_key_id = k.id AND r.app_identifier_id = $2::uuid)
+     AND NOT EXISTS (SELECT 1 FROM api_key_build_rules r WHERE r.api_key_id = k.id AND r.app_identifier_id <> $2::uuid))
+    OR
+    (EXISTS (SELECT 1 FROM api_key_submit_rules r WHERE r.api_key_id = k.id AND r.app_identifier_id = $2::uuid)
+     AND NOT EXISTS (SELECT 1 FROM api_key_submit_rules r WHERE r.api_key_id = k.id AND r.app_identifier_id <> $2::uuid))
+  )
+ORDER BY k.name
+`
+
+type ListApiKeysOnlyRestrictedToAppIdentifierParams struct {
+	AppID pgtype.UUID `json:"app_id"`
+	ID    pgtype.UUID `json:"id"`
+}
+
+// Live keys whose Build or Submit rules all name this identifier.
+func (q *Queries) ListApiKeysOnlyRestrictedToAppIdentifier(ctx context.Context, arg ListApiKeysOnlyRestrictedToAppIdentifierParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, listApiKeysOnlyRestrictedToAppIdentifier, arg.AppID, arg.ID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		items = append(items, name)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -4046,7 +4591,7 @@ type ListDeviceHealthOutboxRow struct {
 	OccurredAt       pgtype.Timestamptz `json:"occurred_at"`
 	Branch           string             `json:"branch"`
 	RuntimeVersion   string             `json:"runtime_version"`
-	Platform         string             `json:"platform"`
+	Platform         types.Platform     `json:"platform"`
 	OsName           string             `json:"os_name"`
 	OsVersion        string             `json:"os_version"`
 	DeviceModel      string             `json:"device_model"`
@@ -4227,6 +4772,87 @@ func (q *Queries) ListDevices(ctx context.Context, arg ListDevicesParams) ([]Dev
 			&i.AppVersion,
 			&i.CurrentUpdateObservedAt,
 			&i.CurrentUpdateArrivedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEnvironmentVarsByAppID = `-- name: ListEnvironmentVarsByAppID :many
+SELECT ev.environment_id, ev.key, ev.is_public, ev.created_at, ev.updated_at
+FROM environment_vars ev
+JOIN environments e ON e.id = ev.environment_id
+WHERE e.app_id = $1
+ORDER BY e.name ASC, ev.key ASC
+`
+
+type ListEnvironmentVarsByAppIDRow struct {
+	EnvironmentID pgtype.UUID        `json:"environment_id"`
+	Key           string             `json:"key"`
+	IsPublic      bool               `json:"is_public"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) ListEnvironmentVarsByAppID(ctx context.Context, appID pgtype.UUID) ([]ListEnvironmentVarsByAppIDRow, error) {
+	rows, err := q.db.Query(ctx, listEnvironmentVarsByAppID, appID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListEnvironmentVarsByAppIDRow
+	for rows.Next() {
+		var i ListEnvironmentVarsByAppIDRow
+		if err := rows.Scan(
+			&i.EnvironmentID,
+			&i.Key,
+			&i.IsPublic,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEnvironmentsByAppID = `-- name: ListEnvironmentsByAppID :many
+SELECT id, name, created_at, updated_at
+FROM environments
+WHERE app_id = $1
+ORDER BY name ASC
+`
+
+type ListEnvironmentsByAppIDRow struct {
+	ID        pgtype.UUID        `json:"id"`
+	Name      string             `json:"name"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) ListEnvironmentsByAppID(ctx context.Context, appID pgtype.UUID) ([]ListEnvironmentsByAppIDRow, error) {
+	rows, err := q.db.Query(ctx, listEnvironmentsByAppID, appID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListEnvironmentsByAppIDRow
+	for rows.Next() {
+		var i ListEnvironmentsByAppIDRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.CreatedAt,
+			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -4777,6 +5403,38 @@ func (q *Queries) ListUserAppGrants(ctx context.Context, userID pgtype.UUID) ([]
 	return items, nil
 }
 
+const lockAppIdentifierByID = `-- name: LockAppIdentifierByID :one
+SELECT id, platform, identifier, build_number FROM app_identifiers
+WHERE app_id = $1 AND id = $2
+FOR UPDATE
+`
+
+type LockAppIdentifierByIDParams struct {
+	AppID pgtype.UUID `json:"app_id"`
+	ID    pgtype.UUID `json:"id"`
+}
+
+type LockAppIdentifierByIDRow struct {
+	ID          pgtype.UUID    `json:"id"`
+	Platform    types.Platform `json:"platform"`
+	Identifier  string         `json:"identifier"`
+	BuildNumber string         `json:"build_number"`
+}
+
+// Lock before DELETE so a concurrent credential insert settles before the
+// identifier and its credentials are removed by the cascade.
+func (q *Queries) LockAppIdentifierByID(ctx context.Context, arg LockAppIdentifierByIDParams) (LockAppIdentifierByIDRow, error) {
+	row := q.db.QueryRow(ctx, lockAppIdentifierByID, arg.AppID, arg.ID)
+	var i LockAppIdentifierByIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.Platform,
+		&i.Identifier,
+		&i.BuildNumber,
+	)
+	return i, err
+}
+
 const markEnterpriseLicenseValidated = `-- name: MarkEnterpriseLicenseValidated :one
 UPDATE enterprise_license SET
     org_name = $1,
@@ -5111,7 +5769,7 @@ type MigrateLegacyUpdateParams struct {
 	Name       string             `json:"name"`
 	Version    string             `json:"version"`
 	UpdateType int32              `json:"update_type"`
-	Platform   string             `json:"platform"`
+	Platform   types.Platform     `json:"platform"`
 	CommitHash string             `json:"commit_hash"`
 	Message    *string            `json:"message"`
 	CheckedAt  pgtype.Timestamptz `json:"checked_at"`
@@ -5582,6 +6240,68 @@ func (q *Queries) ResolveDeviceUpdateFailures(ctx context.Context, arg ResolveDe
 	return result.RowsAffected(), nil
 }
 
+const resolveEnvironmentVariables = `-- name: ResolveEnvironmentVariables :many
+WITH selected AS (
+    SELECT e.id AS environment_id
+    FROM environments e
+    WHERE e.app_id = $1::uuid
+      AND $2::text <> ''
+      AND e.name = $2::text
+    UNION ALL
+    SELECT c.environment_id
+    FROM channels c
+    WHERE c.app_id = $1::uuid
+      AND $3::text <> ''
+      AND c.name = $3::text
+)
+SELECT e.id AS environment_id, e.name AS environment_name,
+       ev.key, ev.is_public, ev.sealed_value
+FROM selected s
+LEFT JOIN environments e ON e.id = s.environment_id AND e.app_id = $1::uuid
+LEFT JOIN environment_vars ev ON ev.environment_id = e.id
+ORDER BY ev.key ASC
+`
+
+type ResolveEnvironmentVariablesParams struct {
+	AppID           pgtype.UUID `json:"app_id"`
+	EnvironmentName string      `json:"environment_name"`
+	ChannelName     string      `json:"channel_name"`
+}
+
+type ResolveEnvironmentVariablesRow struct {
+	EnvironmentID   pgtype.UUID `json:"environment_id"`
+	EnvironmentName *string     `json:"environment_name"`
+	Key             *string     `json:"key"`
+	IsPublic        *bool       `json:"is_public"`
+	SealedValue     *string     `json:"sealed_value"`
+}
+
+func (q *Queries) ResolveEnvironmentVariables(ctx context.Context, arg ResolveEnvironmentVariablesParams) ([]ResolveEnvironmentVariablesRow, error) {
+	rows, err := q.db.Query(ctx, resolveEnvironmentVariables, arg.AppID, arg.EnvironmentName, arg.ChannelName)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ResolveEnvironmentVariablesRow
+	for rows.Next() {
+		var i ResolveEnvironmentVariablesRow
+		if err := rows.Scan(
+			&i.EnvironmentID,
+			&i.EnvironmentName,
+			&i.Key,
+			&i.IsPublic,
+			&i.SealedValue,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const revokeApiKeyByID = `-- name: RevokeApiKeyByID :one
 UPDATE api_keys
 SET revoked_at = CURRENT_TIMESTAMP
@@ -5651,6 +6371,22 @@ func (q *Queries) SearchIdentityValues(ctx context.Context, arg SearchIdentityVa
 		return nil, err
 	}
 	return items, nil
+}
+
+const setAppIdentifierBuildNumber = `-- name: SetAppIdentifierBuildNumber :execresult
+UPDATE app_identifiers
+SET build_number = $3
+WHERE app_id = $1 AND id = $2
+`
+
+type SetAppIdentifierBuildNumberParams struct {
+	AppID       pgtype.UUID `json:"app_id"`
+	ID          pgtype.UUID `json:"id"`
+	BuildNumber string      `json:"build_number"`
+}
+
+func (q *Queries) SetAppIdentifierBuildNumber(ctx context.Context, arg SetAppIdentifierBuildNumberParams) (pgconn.CommandTag, error) {
+	return q.db.Exec(ctx, setAppIdentifierBuildNumber, arg.AppID, arg.ID, arg.BuildNumber)
 }
 
 const setBranchProtected = `-- name: SetBranchProtected :execrows
@@ -6099,6 +6835,25 @@ func (q *Queries) UpdateChannelBranchSurfing(ctx context.Context, arg UpdateChan
 	)
 }
 
+const updateChannelEnvironment = `-- name: UpdateChannelEnvironment :execresult
+UPDATE channels c
+SET environment_id = $3::uuid
+WHERE c.app_id = $1 AND c.name = $2
+  AND ($3::uuid IS NULL
+       OR EXISTS (SELECT 1 FROM environments e WHERE e.id = $3::uuid AND e.app_id = c.app_id))
+`
+
+type UpdateChannelEnvironmentParams struct {
+	AppID         pgtype.UUID `json:"app_id"`
+	Name          string      `json:"name"`
+	EnvironmentID pgtype.UUID `json:"environment_id"`
+}
+
+// Refuses an environment of another app even when called with a raw id.
+func (q *Queries) UpdateChannelEnvironment(ctx context.Context, arg UpdateChannelEnvironmentParams) (pgconn.CommandTag, error) {
+	return q.db.Exec(ctx, updateChannelEnvironment, arg.AppID, arg.Name, arg.EnvironmentID)
+}
+
 const updateChannelRolloutPercentage = `-- name: UpdateChannelRolloutPercentage :execrows
 UPDATE channel_rollouts
 SET percentage = $1, updated_at = CURRENT_TIMESTAMP
@@ -6277,6 +7032,32 @@ func (q *Queries) UpdateFailureBreakdownByIDs(ctx context.Context, arg UpdateFai
 	return items, nil
 }
 
+const updateGooglePlayServiceAccountKey = `-- name: UpdateGooglePlayServiceAccountKey :execresult
+UPDATE android_credentials
+SET sealed_google_service_account_key = $2,
+    google_service_account_email = $3,
+    google_service_account_project_id = $4
+WHERE app_identifier_id = $1
+`
+
+type UpdateGooglePlayServiceAccountKeyParams struct {
+	AppIdentifierID               pgtype.UUID `json:"app_identifier_id"`
+	SealedGoogleServiceAccountKey *string     `json:"sealed_google_service_account_key"`
+	GoogleServiceAccountEmail     *string     `json:"google_service_account_email"`
+	GoogleServiceAccountProjectID *string     `json:"google_service_account_project_id"`
+}
+
+// updated_at belongs to the signing keystore shown in the dashboard; changing
+// the independently managed service account must not make that timestamp lie.
+func (q *Queries) UpdateGooglePlayServiceAccountKey(ctx context.Context, arg UpdateGooglePlayServiceAccountKeyParams) (pgconn.CommandTag, error) {
+	return q.db.Exec(ctx, updateGooglePlayServiceAccountKey,
+		arg.AppIdentifierID,
+		arg.SealedGoogleServiceAccountKey,
+		arg.GoogleServiceAccountEmail,
+		arg.GoogleServiceAccountProjectID,
+	)
+}
+
 const updateRole = `-- name: UpdateRole :execresult
 UPDATE roles
 SET name = $2, permissions = $3, updated_at = CURRENT_TIMESTAMP
@@ -6378,6 +7159,46 @@ type UpdateUserPasswordByIDParams struct {
 // the only thing that ends those sessions.
 func (q *Queries) UpdateUserPasswordByID(ctx context.Context, arg UpdateUserPasswordByIDParams) (pgconn.CommandTag, error) {
 	return q.db.Exec(ctx, updateUserPasswordByID, arg.ID, arg.PasswordHash)
+}
+
+const upsertAndroidCredentials = `-- name: UpsertAndroidCredentials :one
+INSERT INTO android_credentials (
+    id, app_identifier_id, key_alias,
+    sealed_keystore, sealed_keystore_password, sealed_key_password,
+    sealed_google_service_account_key
+) VALUES ($1, $2, $3, $4, $5, $6, $7)
+ON CONFLICT (app_identifier_id) DO UPDATE SET
+    key_alias = EXCLUDED.key_alias,
+    sealed_keystore = EXCLUDED.sealed_keystore,
+    sealed_keystore_password = EXCLUDED.sealed_keystore_password,
+    sealed_key_password = EXCLUDED.sealed_key_password,
+    updated_at = CURRENT_TIMESTAMP
+RETURNING id
+`
+
+type UpsertAndroidCredentialsParams struct {
+	ID                            pgtype.UUID `json:"id"`
+	AppIdentifierID               pgtype.UUID `json:"app_identifier_id"`
+	KeyAlias                      string      `json:"key_alias"`
+	SealedKeystore                string      `json:"sealed_keystore"`
+	SealedKeystorePassword        string      `json:"sealed_keystore_password"`
+	SealedKeyPassword             string      `json:"sealed_key_password"`
+	SealedGoogleServiceAccountKey *string     `json:"sealed_google_service_account_key"`
+}
+
+func (q *Queries) UpsertAndroidCredentials(ctx context.Context, arg UpsertAndroidCredentialsParams) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, upsertAndroidCredentials,
+		arg.ID,
+		arg.AppIdentifierID,
+		arg.KeyAlias,
+		arg.SealedKeystore,
+		arg.SealedKeystorePassword,
+		arg.SealedKeyPassword,
+		arg.SealedGoogleServiceAccountKey,
+	)
+	var id pgtype.UUID
+	err := row.Scan(&id)
+	return id, err
 }
 
 const upsertBundlePatchPending = `-- name: UpsertBundlePatchPending :execrows
@@ -6527,6 +7348,37 @@ func (q *Queries) UpsertEnterpriseLicense(ctx context.Context, arg UpsertEnterpr
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const upsertEnvironmentVar = `-- name: UpsertEnvironmentVar :one
+INSERT INTO environment_vars (id, environment_id, key, is_public, sealed_value)
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (environment_id, key) DO UPDATE SET
+    is_public = EXCLUDED.is_public,
+    sealed_value = EXCLUDED.sealed_value,
+    updated_at = CURRENT_TIMESTAMP
+RETURNING id
+`
+
+type UpsertEnvironmentVarParams struct {
+	ID            pgtype.UUID `json:"id"`
+	EnvironmentID pgtype.UUID `json:"environment_id"`
+	Key           string      `json:"key"`
+	IsPublic      bool        `json:"is_public"`
+	SealedValue   string      `json:"sealed_value"`
+}
+
+func (q *Queries) UpsertEnvironmentVar(ctx context.Context, arg UpsertEnvironmentVarParams) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, upsertEnvironmentVar,
+		arg.ID,
+		arg.EnvironmentID,
+		arg.Key,
+		arg.IsPublic,
+		arg.SealedValue,
+	)
+	var id pgtype.UUID
+	err := row.Scan(&id)
+	return id, err
 }
 
 const upsertIdentitySchemaKey = `-- name: UpsertIdentitySchemaKey :one

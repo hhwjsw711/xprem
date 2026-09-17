@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "profiles": {
+    "test": {
+      "android": {
+        "applicationId": "com.xprem.sample",
+        "mode": "release",
+        "artifact": "apk"
+      },
+      "ios": {
+        "bundleIdentifier": "com.xprem.sample",
+        "distribution": "ad-hoc"
+      },
+      "channel": "production"
+    }
+  }
+}

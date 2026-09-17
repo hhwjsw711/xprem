@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Copy, Pencil, Plus, ShieldCheck, Trash2 } from 'lucide-react';
+import { Copy, Pencil, Plus, Trash2 } from 'lucide-react';
 import { api, ApiKeyRecord, ApiProblemError } from '@/lib/api';
 import { useSelectedApp } from '@/lib/SelectedAppContext';
 import { useSettings } from '@/lib/SettingsContext';
@@ -36,7 +36,7 @@ export const ApiTokens = () => {
     enabled: !!selectedAppId && CONTROL_PLANE_ENABLED,
   });
 
-  // What each token is allowed to do, summarized in the Access column. The
+  // What each token is allowed to do, summarized by domain. The
   // editing itself lives in ApiKeyAccessSheet.
   const apiKeyAccessQuery = useQuery({
     queryKey: ['apiKeyAccess', selectedAppId],
@@ -47,20 +47,37 @@ export const ApiTokens = () => {
     (apiKeyAccessQuery.data ?? []).map(access => [access.apiKeyId, access])
   );
 
-  // Empty means the token is at its default, which is full access to the app.
-  // Saying "Every branch" rather than nothing keeps the two states apart at a
-  // glance, since one of them is the permissive one.
-  const describeAccess = (apiKeyId: string) => {
+  const licenseQuery = useQuery({
+    queryKey: ['license'],
+    queryFn: () => api.getLicense(),
+    enabled: CONTROL_PLANE_ENABLED,
+  });
+
+  const renderAccess = (apiKeyId: string, domain: 'updates' | 'build' | 'submit' | 'environments' | 'allowedIps') => {
+    if (!licenseQuery.data) {
+      return <span className="text-xs text-muted-foreground">{licenseQuery.isError ? 'Access unavailable' : 'Loading access…'}</span>;
+    }
+    if (!licenseQuery.data.valid) {
+      return <span className="rounded-md bg-muted px-2 py-1 text-xs font-medium">Unrestricted</span>;
+    }
     const access = accessByKeyId.get(apiKeyId);
-    const parts: string[] = [];
-    const ruleCount = access?.branchRules.length ?? 0;
-    if (ruleCount > 0) {
-      parts.push(`${ruleCount} branch rule${ruleCount > 1 ? 's' : ''}`);
+    if (!access) {
+      return <span className="text-xs text-muted-foreground">{apiKeyAccessQuery.isError ? 'Access unavailable' : 'Loading access…'}</span>;
     }
-    if (access?.allowedIps.length) {
-      parts.push(`${access.allowedIps.length} IP${access.allowedIps.length > 1 ? 's' : ''}`);
-    }
-    return parts.join(' · ');
+    const count = domain === 'allowedIps' ? access.allowedIps.length : access[domain].rules.length;
+    const unit = { updates: 'branch rule', build: 'identifier', submit: 'destination', environments: 'environment rule', allowedIps: 'IP rule' }[domain];
+    const empty = domain === 'updates' ? 'No access' : domain === 'allowedIps' ? 'Any IP' : 'Full access';
+    return (
+      <span className={`inline-flex h-6 items-center whitespace-nowrap rounded-md px-2 text-xs font-medium ${
+        count > 0
+          ? 'bg-primary/10 text-primary'
+          : domain === 'updates' || domain === 'allowedIps'
+            ? 'bg-muted text-muted-foreground'
+            : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+      }`}>
+        {count > 0 ? `${count} ${unit}${count > 1 ? 's' : ''}` : empty}
+      </span>
+    );
   };
 
   const handleCreateApiKey = async () => {
@@ -71,6 +88,7 @@ export const ApiTokens = () => {
       setGeneratedToken(response.apiKey);
       setNewKeyName('');
       queryClient.invalidateQueries({ queryKey: ['apiKeys', selectedAppId] });
+      queryClient.invalidateQueries({ queryKey: ['apiKeyAccess', selectedAppId] });
     } catch (error) {
       let errorTitle = 'Error creating token';
       let errorMessage = 'An unexpected error occurred.';
@@ -92,6 +110,7 @@ export const ApiTokens = () => {
     try {
       await api.revokeApiKey(keyToRevoke.id);
       queryClient.invalidateQueries({ queryKey: ['apiKeys', selectedAppId] });
+      queryClient.invalidateQueries({ queryKey: ['apiKeyAccess', selectedAppId] });
       toast({
         title: 'Token revoked',
         description: `"${keyToRevoke.name}" can no longer be used.`,
@@ -168,6 +187,8 @@ export const ApiTokens = () => {
             <p className="text-sm font-medium">Here is your new token</p>
             <p className="mt-0.5 text-xs text-muted-foreground">
               Copy it now, it will not be shown again.
+              {licenseQuery.data?.valid &&
+                ' New tokens have full Build, Submit and Environment access for this app, and no Updates access. Use the Edit access action to configure permissions.'}
             </p>
             <div className="mt-3 flex items-center gap-2">
               <code className="flex-1 select-all break-all rounded-lg border bg-background p-2.5 font-mono text-xs">
@@ -220,50 +241,48 @@ export const ApiTokens = () => {
                 return <TimestampCell dateString={lastUsed} />;
               },
             },
-            {
-              header: 'Access',
-              id: 'access',
-              cell: ({ row }: { row: { original: ApiKeyRecord } }) => {
-                const summary = describeAccess(row.original.id);
-                const state = summary ? (
-                  <span className="inline-flex items-center gap-1.5 text-sm font-medium text-emerald-700 dark:text-emerald-300">
-                    <ShieldCheck className="h-3.5 w-3.5" />
-                    {summary}
-                  </span>
-                ) : (
-                  <span className="text-sm text-muted-foreground/60">Every branch</span>
-                );
-                if (!canManageApiKeys) {
-                  return state;
-                }
-                return (
-                  <button
-                    type="button"
-                    onClick={() => setKeyToRestrict(row.original)}
-                    className="group inline-flex items-center gap-2.5"
-                    title="Edit what this token is allowed to do">
-                    {state}
-                    <span className="inline-flex items-center gap-1 text-sm font-medium text-link group-hover:underline">
-                      <Pencil className="h-3 w-3" />
-                      Edit
-                    </span>
-                  </button>
-                );
-              },
-            },
+            ...(['updates', 'build', 'submit'] as const).map(domain => ({
+              header: { updates: 'Updates', build: 'Build', submit: 'Submit' }[domain],
+              id: domain,
+              cell: ({ row }: { row: { original: ApiKeyRecord } }) => renderAccess(row.original.id, domain),
+            })),
+            ...(licenseQuery.data?.valid && apiKeyAccessQuery.data?.some(access => access.environments.rules.length > 0)
+              ? [{
+                  header: 'Environments',
+                  id: 'environments',
+                  cell: ({ row }: { row: { original: ApiKeyRecord } }) => renderAccess(row.original.id, 'environments'),
+                }]
+              : []),
+            ...(licenseQuery.data?.valid && apiKeyAccessQuery.data?.some(access => access.allowedIps.length > 0)
+              ? [{
+                  header: 'IP allowlist',
+                  id: 'allowedIps',
+                  cell: ({ row }: { row: { original: ApiKeyRecord } }) => renderAccess(row.original.id, 'allowedIps'),
+                }]
+              : []),
             ...(canManageApiKeys
               ? [
                   {
                     header: '',
                     id: 'actions',
                     cell: ({ row }: { row: { original: ApiKeyRecord } }) => (
-                      <div className="text-right">
+                      <div className="flex justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => setKeyToRestrict(row.original)}
+                          className="h-8 w-8 text-muted-foreground"
+                          title="Edit access"
+                          aria-label={`Edit access for ${row.original.name}`}>
+                          <Pencil />
+                        </Button>
                         <Button
                           variant="ghost"
                           size="sm"
                           onClick={() => setKeyToRevoke(row.original)}
                           className="h-8 w-8 p-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                          title="Revoke token">
+                          title="Revoke token"
+                          aria-label={`Revoke token ${row.original.name}`}>
                           <Trash2 />
                         </Button>
                       </div>

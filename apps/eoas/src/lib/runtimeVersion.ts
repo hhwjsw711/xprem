@@ -13,16 +13,12 @@ export class ExpoUpdatesCLIModuleNotFoundError extends Error {}
 export class ExpoUpdatesCLIInvalidCommandError extends Error {}
 export class ExpoUpdatesCLICommandFailedError extends Error {}
 
-export async function expoUpdatesCommandAsync(
-  projectDir: string,
-  args: string[],
-  options: { env: Env | undefined; cwd?: string }
-): Promise<string> {
-  let expoUpdatesCli;
+export function resolveExpoUpdatesCli(projectDir: string): string {
   try {
-    expoUpdatesCli =
+    return (
       silentResolveFrom(projectDir, 'expo-updates/bin/cli') ??
-      resolveFrom(projectDir, 'expo-updates/bin/cli.js');
+      resolveFrom(projectDir, 'expo-updates/bin/cli.js')
+    );
   } catch (e: any) {
     if (e.code === 'MODULE_NOT_FOUND') {
       throw new ExpoUpdatesCLIModuleNotFoundError(
@@ -33,6 +29,14 @@ export async function expoUpdatesCommandAsync(
     }
     throw e;
   }
+}
+
+export async function expoUpdatesCommandAsync(
+  projectDir: string,
+  args: string[],
+  options: { env: Env | undefined; cwd?: string }
+): Promise<string> {
+  const expoUpdatesCli = resolveExpoUpdatesCli(projectDir);
 
   try {
     return (

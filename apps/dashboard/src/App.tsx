@@ -1,9 +1,10 @@
 import { Layout } from '@/containers/Layout';
-import { Navigate, Route, Routes, useNavigate } from 'react-router';
+import { Navigate, Route, Routes, useMatch, useNavigate } from 'react-router';
 import { isAuthenticated } from '@/lib/auth.ts';
 import { lazy, ReactNode, Suspense, useEffect } from 'react';
 import { Login } from '@/pages/Login';
 import { OAuthConsent } from '@/pages/OAuthConsent';
+import { RegisterDevice } from '@/pages/RegisterDevice';
 import { Toaster } from '@/components/ui/toaster.tsx';
 import { Updates } from '@/pages/Updates';
 import { Settings } from '@/pages/Settings';
@@ -26,6 +27,12 @@ import { RouteErrorBoundary } from '@/components/RouteErrorBoundary';
 import { Branches } from '@/pages/Branches';
 import { UpdateDetails } from '@/pages/UpdateDetails';
 import { useSettings } from '@/lib/SettingsContext';
+import { BuildCredentials } from './pages/BuildCredentials';
+import { AppIdentifierDetail } from './pages/BuildCredentials/AppIdentifierDetail';
+import { Environments } from './pages/Environments';
+import { EnvironmentDetail } from './pages/Environments/EnvironmentDetail';
+import { Builds } from './pages/Builds';
+import { BuildDetail } from './pages/Builds/BuildDetail';
 
 const Observe = lazy(() =>
   import('@/ee/pages/Observe').then(module => ({ default: module.Observe }))
@@ -80,12 +87,13 @@ const observeRoute = withLayout(
 export const App = () => {
   const isLoggedIn = isAuthenticated();
   const navigate = useNavigate();
+  const isPublicPage = useMatch('/register-device/:token') !== null;
 
   useEffect(() => {
-    if (!isLoggedIn) {
+    if (!isLoggedIn && !isPublicPage) {
       navigate('/login');
     }
-  }, [isLoggedIn, navigate]);
+  }, [isLoggedIn, isPublicPage, navigate]);
 
   return (
     <>
@@ -95,6 +103,8 @@ export const App = () => {
         {/* Standalone like /login: the OAuth bounce lands here for any account,
             and the page handles the not-signed-in case itself (returnTo). */}
         <Route path="/oauth/consent" element={<OAuthConsent />} />
+        {/* Public: opened on a tester's iPhone, without a dashboard session. */}
+        <Route path="/register-device/:token" element={<RegisterDevice />} />
         <Route
           path="*"
           element={
@@ -154,6 +164,21 @@ export const App = () => {
                         <Route path="/sso" element={withLayout(<Sso />)} />
                         <Route path="/license" element={withLayout(<License />)} />
                         <Route path="/account" element={withLayout(<Account />)} />
+                        <Route path="/build-credentials" element={withLayout(withApp(<BuildCredentials />))} />
+                        <Route
+                          path="/build-credentials/:identifierId"
+                          element={withLayout(withApp(<AppIdentifierDetail />))}
+                        />
+                        <Route path="/builds" element={withLayout(withApp(<Builds />))} />
+                        <Route
+                          path="/builds/:buildId"
+                          element={withLayout(withApp(<BuildDetail />))}
+                        />
+                        <Route path="/environments" element={withLayout(withApp(<Environments />))} />
+                        <Route
+                          path="/environments/:environmentName"
+                          element={withLayout(withApp(<EnvironmentDetail />))}
+                        />
                         <Route path="/logout" element={withLayout(<Logout />)} />
                       </Routes>
                     </SelectedAppProvider>

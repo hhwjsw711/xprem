@@ -36,6 +36,9 @@ import (
 )
 
 type AppContainer struct {
+	AppIdentifierRepo           services.AppIdentifierRepository
+	BuildHandler                *handlers.BuildHandler
+	BuildRegistryHandler        *handlers.BuildRegistryHandler
 	AuthHandler                 *dashhandlers.AuthHandler
 	BlobService                 *services.BlobService
 	DashboardAuthService        *services.DashboardAuthService
@@ -48,8 +51,12 @@ type AppContainer struct {
 	AppRepo                     services.AppRepository
 	ExpoImportHandler           *dashhandlers.ExpoImportHandler
 	BranchHandler               *dashhandlers.BranchHandler
+	AppIdentifiersHandler       *dashhandlers.AppIdentifiersHandler
 	BranchListHandler           *handlers.BranchListHandler
 	ChannelHandler              *dashhandlers.ChannelHandler
+	CredentialsHandler          *dashhandlers.CredentialsHandler
+	IosCredentialsHandler       *dashhandlers.IosCredentialsHandler
+	EnvironmentsHandler         *dashhandlers.EnvironmentsHandler
 	ExpoProtocolHandler         *handlers.ExpoProtocolHandler
 	LicenseHandler              *licensing.LicenseHandler
 	RBACHandler                 *rbac.RBACHandler
@@ -86,6 +93,7 @@ func logLegacyAppIdFallback() {
 	}
 }
 
+// InitDependencies wires application stores and services and returns their cleanup function.
 func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 	var authRepo services.CliAuthRepository
 	var appRepo services.AppRepository
@@ -103,6 +111,15 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 	var mcpHandler *mcp.MCPHandler
 	var rolloutRepo services.RolloutRepository
 	var bundlePatchRepo services.BundlePatchRepository
+	// nil in stateless mode: store identities and signing credentials only
+	// exist on the control plane.
+	var buildRepo services.BuildRepository
+	var buildCleanup *services.BuildCleanup
+	var appIdentifierRepo services.AppIdentifierRepository
+	var credentialsRepo services.CredentialsRepository
+	var iosCredentialsRepo services.IosCredentialsRepository
+	var lockIosCertificate func(ctx context.Context) (release func(), err error)
+	var environmentRepo services.EnvironmentRepository
 	var licenseRepo licensing.LicenseRepository
 	var ssoRepo sso.SSORepository
 	var apiKeyAccessRepo apikeyrestrictions.ApiKeyAccessRepository
@@ -176,6 +193,13 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 		}
 		rolloutRepo = store.NewPostgresRolloutStore(dbEngine)
 		bundlePatchRepo = store.NewPostgresBundlePatchStore(dbEngine)
+		appIdentifierRepo = store.NewPostgresAppIdentifierStore(dbEngine)
+		buildRepo = store.NewPostgresBuildStore(dbEngine)
+		buildCleanup = services.NewBuildCleanup(dbEngine.DB, resolvedBucket)
+		credentialsRepo = store.NewPostgresCredentialsStore(dbEngine)
+		iosCredentialsRepo = store.NewPostgresIosCredentialsStore(dbEngine)
+		lockIosCertificate = postgres.AdvisoryLocker(dbEngine.DB, postgres.IosCertificateLockID, "ios certificate")
+		environmentRepo = store.NewPostgresEnvironmentStore(dbEngine)
 
 		// Resolved even when telemetry is off: licensing needs the instance id.
 		seedInstanceId, _ := resolvedBucket.GetInstanceID()
@@ -304,6 +328,19 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 	bsDiffService.SetOnAuditEvent(auditService.Record)
 	rolloutService := services.NewRolloutService(rolloutRepo, channelRepo, updateRepo, deploymentService)
 	rolloutService.SetOnAuditEvent(auditService.Record)
+	buildService := services.NewBuildService(buildRepo, appIdentifierRepo, resolvedBucket)
+	if buildCleanup != nil {
+		addCleanup(buildCleanup.Start(ctx))
+	}
+	appIdentifierService := services.NewAppIdentifierService(appIdentifierRepo)
+	appIdentifierService.SetOnAuditEvent(auditService.Record)
+	credentialsService := services.NewCredentialsService(credentialsRepo, appIdentifierRepo)
+	credentialsService.SetOnAuditEvent(auditService.Record)
+	iosCredentialsService := services.NewIosCredentialsService(iosCredentialsRepo, appIdentifierRepo)
+	iosCredentialsService.SetCertificateCreationLock(lockIosCertificate)
+	iosCredentialsService.SetOnAuditEvent(auditService.Record)
+	environmentService := services.NewEnvironmentService(environmentRepo)
+	environmentService.SetOnAuditEvent(auditService.Record)
 
 	// Shared across handlers; with Redis configured, also across replicas.
 	rateLimiter := ratelimit.New(cache.GetCache())
@@ -327,6 +364,7 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 				BranchWriter:        branchService,
 				ChannelWriter:       channelService,
 				Deployments:         deploymentService,
+				Builds:              buildService,
 				SSOEnabled:          ssoService.Enabled,
 				VisibleApps:         rbacService.VisibleAppsForPrincipal,
 				CanUseSomewhere:     rbacService.MCPCanUseSomewhere,
@@ -348,6 +386,8 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 		))
 	}
 
+	buildHandler := handlers.NewBuildHandler(environmentService, credentialsService, iosCredentialsService, appIdentifierService)
+	buildHandler.SetEnvironmentAuthorizer(environmentAuthorizer(apiKeyAccessService))
 	container := &AppContainer{
 		AuthHandler:                 dashhandlers.NewAuthHandler(dashboardAuthService, rateLimiter),
 		DashboardAuthService:        dashboardAuthService,
@@ -363,6 +403,13 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 		BranchHandler:               dashhandlers.NewBranchHandler(branchService),
 		BranchListHandler:           handlers.NewBranchListHandler(channelService),
 		ChannelHandler:              dashhandlers.NewChannelHandler(channelService),
+		AppIdentifiersHandler:       dashhandlers.NewAppIdentifiersHandler(appIdentifierService),
+		CredentialsHandler:          dashhandlers.NewCredentialsHandler(credentialsService),
+		IosCredentialsHandler:       dashhandlers.NewIosCredentialsHandler(iosCredentialsService),
+		AppIdentifierRepo:           appIdentifierRepo,
+		BuildHandler:                buildHandler,
+		BuildRegistryHandler:        handlers.NewBuildRegistryHandler(buildService),
+		EnvironmentsHandler:         dashhandlers.NewEnvironmentsHandler(environmentService),
 		ExpoProtocolHandler:         handlers.NewExpoProtocolHandler(expoProtocolService),
 		LicenseHandler:              licensing.NewLicenseHandler(licenseService),
 		AuditHandler:                audit.NewAuditHandler(auditService),

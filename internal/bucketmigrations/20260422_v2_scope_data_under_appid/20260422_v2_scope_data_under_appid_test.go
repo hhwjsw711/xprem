@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 	"xprem/internal/bucket"
 	"xprem/internal/types"
 
@@ -155,4 +156,29 @@ func TestUp_RunsOnSingleAppFlatEnv(t *testing.T) {
 	// The v1 branch should now live under app-1/.
 	_, err := os.Stat(filepath.Join(base, "app-1", "branch-a", "1", "12345", ".check"))
 	assert.NoError(t, err)
+}
+
+func (u unreachableBucket) GetBuildArtifact(context.Context, bucket.BuildArtifact, bool) (*types.BucketFile, error) {
+	u.t.Fatal("migration should have skipped")
+	return nil, nil
+}
+
+func (u unreachableBucket) PutBuildArtifact(context.Context, bucket.BuildArtifact, bool, io.Reader) error {
+	u.t.Fatal("migration should have skipped")
+	return nil
+}
+
+func (u unreachableBucket) DeleteBuildArtifact(context.Context, bucket.BuildArtifact, bool) error {
+	u.t.Fatal("migration should have skipped")
+	return nil
+}
+
+func (u unreachableBucket) RequestBuildArtifactUploadURL(context.Context, string, bucket.BuildArtifact) (*bucket.UploadRequest, error) {
+	u.t.Fatal("migration should have skipped")
+	return nil, nil
+}
+
+func (u unreachableBucket) RequestBuildArtifactDownloadURL(context.Context, bucket.BuildArtifact, time.Time) (string, error) {
+	u.t.Fatal("migration should have skipped")
+	return "", nil
 }

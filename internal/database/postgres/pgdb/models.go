@@ -8,8 +8,23 @@ import (
 	"net/netip"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	"xprem/internal/auditlog"
 	"xprem/internal/types"
 )
+
+type AndroidCredential struct {
+	ID                            pgtype.UUID        `json:"id"`
+	AppIdentifierID               pgtype.UUID        `json:"app_identifier_id"`
+	KeyAlias                      string             `json:"key_alias"`
+	SealedKeystore                string             `json:"sealed_keystore"`
+	SealedKeystorePassword        string             `json:"sealed_keystore_password"`
+	SealedKeyPassword             string             `json:"sealed_key_password"`
+	SealedGoogleServiceAccountKey *string            `json:"sealed_google_service_account_key"`
+	GoogleServiceAccountEmail     *string            `json:"google_service_account_email"`
+	GoogleServiceAccountProjectID *string            `json:"google_service_account_project_id"`
+	CreatedAt                     pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt                     pgtype.Timestamptz `json:"updated_at"`
+}
 
 type ApiKey struct {
 	ID         int64              `json:"id"`
@@ -23,7 +38,27 @@ type ApiKey struct {
 	AllowedIps []netip.Prefix     `json:"allowed_ips"`
 }
 
-type ApiKeyBranchRule struct {
+type ApiKeyBuildRule struct {
+	ApiKeyID        int64       `json:"api_key_id"`
+	AppID           pgtype.UUID `json:"app_id"`
+	AppIdentifierID pgtype.UUID `json:"app_identifier_id"`
+	Actions         []string    `json:"actions"`
+}
+
+type ApiKeyEnvironmentRule struct {
+	ApiKeyID int64  `json:"api_key_id"`
+	Pattern  string `json:"pattern"`
+}
+
+type ApiKeySubmitRule struct {
+	ApiKeyID        int64       `json:"api_key_id"`
+	AppID           pgtype.UUID `json:"app_id"`
+	AppIdentifierID pgtype.UUID `json:"app_identifier_id"`
+	Destination     string      `json:"destination"`
+	Actions         []string    `json:"actions"`
+}
+
+type ApiKeyUpdateRule struct {
 	ID        int64              `json:"id"`
 	ApiKeyID  int64              `json:"api_key_id"`
 	Pattern   string             `json:"pattern"`
@@ -44,6 +79,25 @@ type App struct {
 	CreatedAt          pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
 	GitUrl             *string            `json:"git_url"`
+}
+
+type AppIdentifier struct {
+	ID          pgtype.UUID        `json:"id"`
+	AppID       pgtype.UUID        `json:"app_id"`
+	Platform    types.Platform     `json:"platform"`
+	Identifier  string             `json:"identifier"`
+	BuildNumber string             `json:"build_number"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+}
+
+type AppStoreConnectApiKey struct {
+	ID               pgtype.UUID        `json:"id"`
+	AppID            pgtype.UUID        `json:"app_id"`
+	KeyID            string             `json:"key_id"`
+	IssuerID         string             `json:"issuer_id"`
+	SealedPrivateKey string             `json:"sealed_private_key"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
 }
 
 type AuditExportState struct {
@@ -84,17 +138,74 @@ type Branch struct {
 	Protected bool               `json:"protected"`
 }
 
+type Build struct {
+	ID              pgtype.UUID             `json:"id"`
+	AppID           pgtype.UUID             `json:"app_id"`
+	AppIdentifierID pgtype.UUID             `json:"app_identifier_id"`
+	Platform        types.Platform          `json:"platform"`
+	ApplicationID   string                  `json:"application_id"`
+	Status          types.BuildStatus       `json:"status"`
+	ArtifactType    types.BuildArtifactType `json:"artifact_type"`
+	Size            int64                   `json:"size"`
+	Sha256          string                  `json:"sha256"`
+	ArtifactKey     string                  `json:"artifact_key"`
+	Metadata        []byte                  `json:"metadata"`
+	ActorType       string                  `json:"actor_type"`
+	ActorID         string                  `json:"actor_id"`
+	ActorDisplay    string                  `json:"actor_display"`
+	StartedAt       pgtype.Timestamptz      `json:"started_at"`
+	FinishedAt      pgtype.Timestamptz      `json:"finished_at"`
+	DurationMs      *int64                  `json:"duration_ms"`
+	CreatedAt       pgtype.Timestamptz      `json:"created_at"`
+	UpdatedAt       pgtype.Timestamptz      `json:"updated_at"`
+	ReadyAt         pgtype.Timestamptz      `json:"ready_at"`
+}
+
+type BuildArtifactCleanup struct {
+	ID              int64                   `json:"id"`
+	BuildID         pgtype.UUID             `json:"build_id"`
+	Platform        types.Platform          `json:"platform"`
+	AppIdentifierID pgtype.UUID             `json:"app_identifier_id"`
+	ArtifactType    types.BuildArtifactType `json:"artifact_type"`
+	DueAt           pgtype.Timestamptz      `json:"due_at"`
+	Attempts        int32                   `json:"attempts"`
+	LastError       *string                 `json:"last_error"`
+	CreatedAt       pgtype.Timestamptz      `json:"created_at"`
+}
+
+type BuildLogChunk struct {
+	BuildID    pgtype.UUID        `json:"build_id"`
+	ByteOffset int32              `json:"byte_offset"`
+	Content    string             `json:"content"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+	Format     string             `json:"format"`
+}
+
+type BuildShare struct {
+	ID        pgtype.UUID        `json:"id"`
+	BuildID   pgtype.UUID        `json:"build_id"`
+	TokenHash string             `json:"token_hash"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
+	RevokedAt pgtype.Timestamptz `json:"revoked_at"`
+}
+
+type BuildStagingSweep struct {
+	BuildID pgtype.UUID        `json:"build_id"`
+	SweptAt pgtype.Timestamptz `json:"swept_at"`
+}
+
 type BundlePatch struct {
-	BranchID         int64              `json:"branch_id"`
-	TargetUpdateID   int64              `json:"target_update_id"`
-	SourceUpdateID   int64              `json:"source_update_id"`
-	Status           string             `json:"status"`
-	Reason           *string            `json:"reason"`
-	PatchSize        *int64             `json:"patch_size"`
-	FullDownloadSize *int64             `json:"full_download_size"`
-	Attempts         int32              `json:"attempts"`
-	CreatedAt        pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
+	BranchID         int64                   `json:"branch_id"`
+	TargetUpdateID   int64                   `json:"target_update_id"`
+	SourceUpdateID   int64                   `json:"source_update_id"`
+	Status           types.BundlePatchStatus `json:"status"`
+	Reason           *string                 `json:"reason"`
+	PatchSize        *int64                  `json:"patch_size"`
+	FullDownloadSize *int64                  `json:"full_download_size"`
+	Attempts         int32                   `json:"attempts"`
+	CreatedAt        pgtype.Timestamptz      `json:"created_at"`
+	UpdatedAt        pgtype.Timestamptz      `json:"updated_at"`
 }
 
 type Channel struct {
@@ -105,6 +216,7 @@ type Channel struct {
 	CreatedAt            pgtype.Timestamptz `json:"created_at"`
 	BranchSurfingEnabled bool               `json:"branch_surfing_enabled"`
 	BranchSurfingPattern string             `json:"branch_surfing_pattern"`
+	EnvironmentID        pgtype.UUID        `json:"environment_id"`
 }
 
 type ChannelRollout struct {
@@ -187,6 +299,24 @@ type EnterpriseLicense struct {
 	UpdatedAt              pgtype.Timestamptz `json:"updated_at"`
 }
 
+type Environment struct {
+	ID        pgtype.UUID        `json:"id"`
+	AppID     pgtype.UUID        `json:"app_id"`
+	Name      string             `json:"name"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
+type EnvironmentVar struct {
+	ID            pgtype.UUID        `json:"id"`
+	EnvironmentID pgtype.UUID        `json:"environment_id"`
+	Key           string             `json:"key"`
+	IsPublic      bool               `json:"is_public"`
+	SealedValue   string             `json:"sealed_value"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+}
+
 type IdentitySchema struct {
 	AppID     pgtype.UUID        `json:"app_id"`
 	Key       string             `json:"key"`
@@ -201,6 +331,59 @@ type IdentityValueStat struct {
 	Value       string             `json:"value"`
 	DeviceCount int64              `json:"device_count"`
 	LastSeenAt  pgtype.Timestamptz `json:"last_seen_at"`
+}
+
+type IosCertificate struct {
+	ID                        pgtype.UUID              `json:"id"`
+	SealedCertificate         string                   `json:"sealed_certificate"`
+	SealedCertificatePassword string                   `json:"sealed_certificate_password"`
+	CommonName                string                   `json:"common_name"`
+	SerialNumber              string                   `json:"serial_number"`
+	FingerprintSha1           string                   `json:"fingerprint_sha1"`
+	CertificateType           types.IosCertificateType `json:"certificate_type"`
+	TeamID                    string                   `json:"team_id"`
+	ExpiresAt                 pgtype.Timestamptz       `json:"expires_at"`
+	CreatedAt                 pgtype.Timestamptz       `json:"created_at"`
+	UpdatedAt                 pgtype.Timestamptz       `json:"updated_at"`
+}
+
+type IosDeviceInvitation struct {
+	ID                    pgtype.UUID        `json:"id"`
+	AppID                 pgtype.UUID        `json:"app_id"`
+	TokenHash             string             `json:"token_hash"`
+	Challenge             string             `json:"challenge"`
+	ClaimToken            pgtype.UUID        `json:"claim_token"`
+	Label                 string             `json:"label"`
+	ExpiresAt             pgtype.Timestamptz `json:"expires_at"`
+	ClaimedAt             pgtype.Timestamptz `json:"claimed_at"`
+	ConsumedAt            pgtype.Timestamptz `json:"consumed_at"`
+	RevokedAt             pgtype.Timestamptz `json:"revoked_at"`
+	CreatedByActorType    auditlog.ActorType `json:"created_by_actor_type"`
+	CreatedByActorID      string             `json:"created_by_actor_id"`
+	CreatedByActorDisplay string             `json:"created_by_actor_display"`
+	CreatedAt             pgtype.Timestamptz `json:"created_at"`
+	RegistrationID        pgtype.UUID        `json:"registration_id"`
+}
+
+type IosDeviceRegistration struct {
+	ID            pgtype.UUID                       `json:"id"`
+	InvitationID  pgtype.UUID                       `json:"invitation_id"`
+	Udid          string                            `json:"udid"`
+	DeviceName    string                            `json:"device_name"`
+	Product       string                            `json:"product"`
+	OsVersion     string                            `json:"os_version"`
+	Status        types.IosDeviceRegistrationStatus `json:"status"`
+	AppleDeviceID *string                           `json:"apple_device_id"`
+	Error         *string                           `json:"error"`
+	CreatedAt     pgtype.Timestamptz                `json:"created_at"`
+}
+
+type IosSigningSetting struct {
+	AppIdentifierID pgtype.UUID          `json:"app_identifier_id"`
+	Mode            types.IosSigningMode `json:"mode"`
+	CertificateID   pgtype.UUID          `json:"certificate_id"`
+	CreatedAt       pgtype.Timestamptz   `json:"created_at"`
+	UpdatedAt       pgtype.Timestamptz   `json:"updated_at"`
 }
 
 type OauthAuthorizationCode struct {
@@ -288,7 +471,7 @@ type Update struct {
 	UpdateType        int32                     `json:"update_type"`
 	CommitHash        string                    `json:"commit_hash"`
 	Message           *string                   `json:"message"`
-	Platform          string                    `json:"platform"`
+	Platform          types.Platform            `json:"platform"`
 	CreatedAt         pgtype.Timestamptz        `json:"created_at"`
 	CheckedAt         pgtype.Timestamptz        `json:"checked_at"`
 	RolloutPercentage *int32                    `json:"rollout_percentage"`

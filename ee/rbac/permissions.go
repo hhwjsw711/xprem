@@ -58,6 +58,27 @@ const (
 	// the embedded bundle. It is distinct from PermUpdateRolloutManage, which
 	// only reverts a rollout already in progress.
 	PermUpdatePublish Permission = "update:publish"
+	// PermCredentialsManage manages the app's store identities (application
+	// identifiers) and their signing credentials (Android keystore, submit
+	// keys). Reading the non-secret metadata is open to any viewer.
+	PermCredentialsManage Permission = "credentials:manage"
+	// PermBuildRead lists the app's builds and opens one: its metadata and
+	// its log. It does not cover the artifact itself.
+	PermBuildRead Permission = "build:read"
+	// PermBuildDownload fetches the signed artifact (APK or AAB) of a ready
+	// build.
+	PermBuildDownload Permission = "build:download"
+	// PermBuildShare creates and revokes the public install links of an APK.
+	PermBuildShare Permission = "build:share"
+	// PermEnvRead reveals the plaintext values of the app's environment
+	// variables. Listing environments and keys (never values) is open to any
+	// viewer.
+	PermEnvRead Permission = "env:read"
+	// PermEnvManage creates and deletes environments, writes and deletes their
+	// variables, and binds channels to an environment. It does not imply
+	// PermEnvRead: a config operator can overwrite values without being able
+	// to read them back.
+	PermEnvManage Permission = "env:manage"
 )
 
 // AllPermissions is the catalog, in the order the dashboard displays it.
@@ -75,6 +96,12 @@ var AllPermissions = []Permission{
 	PermChannelRolloutManage,
 	PermUpdateRolloutManage,
 	PermUpdatePublish,
+	PermCredentialsManage,
+	PermBuildRead,
+	PermBuildDownload,
+	PermBuildShare,
+	PermEnvRead,
+	PermEnvManage,
 	PermApiKeysManage,
 	PermIdentityManage,
 	PermIdentityRead,
@@ -99,8 +126,11 @@ func IsValidPermission(p string) bool {
 // FallbackAnyMember; everything else falls back to admin-only. The route and
 // tool declarations pair the same values.
 var anyMemberPermissions = map[Permission]bool{
-	PermIdentityRead: true,
-	PermObserveRead:  true,
+	PermIdentityRead:  true,
+	PermObserveRead:   true,
+	PermEnvRead:       true,
+	PermBuildRead:     true,
+	PermBuildDownload: true,
 }
 
 // DefaultFallback is what gates a permission's actions when roles are not

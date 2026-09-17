@@ -27,6 +27,14 @@ func registerAppRoutes(
 		apiKeyAccess: container.ApiKeyAccessService,
 	}
 
+	app.route(http.MethodGet, "/builds", container.BuildRegistryHandler.List, NeedsPermission(rbac.PermBuildRead, rbac.FallbackAnyMember))
+	app.route(http.MethodGet, "/builds/{BUILD_ID}", container.BuildRegistryHandler.Get, NeedsPermission(rbac.PermBuildRead, rbac.FallbackAnyMember))
+	app.route(http.MethodGet, "/builds/{BUILD_ID}/logs", container.BuildRegistryHandler.ListLogs, NeedsPermission(rbac.PermBuildRead, rbac.FallbackAnyMember))
+	app.route(http.MethodGet, "/builds/{BUILD_ID}/download", container.BuildRegistryHandler.Download, NeedsPermission(rbac.PermBuildDownload, rbac.FallbackAnyMember))
+	app.route(http.MethodGet, "/builds/{BUILD_ID}/shares", container.BuildRegistryHandler.ListShares, NeedsPermission(rbac.PermBuildShare, rbac.FallbackAdminOnly))
+	app.route(http.MethodPost, "/builds/{BUILD_ID}/shares", container.BuildRegistryHandler.CreateShare, NeedsPermission(rbac.PermBuildShare, rbac.FallbackAdminOnly))
+	app.route(http.MethodDelete, "/builds/{BUILD_ID}/shares/{SHARE_ID}", container.BuildRegistryHandler.RevokeShare, NeedsPermission(rbac.PermBuildShare, rbac.FallbackAdminOnly))
+
 	app.route(http.MethodGet, "", container.AppHandler.GetAppHandler,
 		AnyViewer())
 	app.route(http.MethodDelete, "", container.AppHandler.DeleteAppHandler,
@@ -74,11 +82,11 @@ func registerAppRoutes(
 	// publishing token may reach: eoas asks which runtime versions a branch
 	// has, then which updates or publish groups that pair already holds.
 	app.route(http.MethodGet, "/branch/{BRANCH}/runtimeVersions", container.BranchHandler.GetRuntimeVersionsHandler,
-		AnyViewerOrToken(apikeyrestrictions.ActionRead))
+		AnyViewerOrUpdateToken(apikeyrestrictions.UpdateActionRead))
 	app.route(http.MethodGet, "/branch/{BRANCH}/runtimeVersion/{RUNTIME_VERSION}/updates", container.UpdateHandler.GetUpdatesHandler,
-		AnyViewerOrToken(apikeyrestrictions.ActionRead))
+		AnyViewerOrUpdateToken(apikeyrestrictions.UpdateActionRead))
 	app.route(http.MethodGet, "/branch/{BRANCH}/runtimeVersion/{RUNTIME_VERSION}/publish-groups", container.UpdateHandler.GetPublishGroupsHandler,
-		AnyViewerOrToken(apikeyrestrictions.ActionRead))
+		AnyViewerOrUpdateToken(apikeyrestrictions.UpdateActionRead))
 	app.route(http.MethodGet, "/updates", container.UpdateHandler.GetUpdateFeedHandler,
 		AnyViewer())
 	app.route(http.MethodGet, "/branch/{BRANCH}/runtimeVersion/{RUNTIME_VERSION}/updates/{UPDATE_ID}", container.UpdateHandler.GetUpdateDetailsHandler,
@@ -91,6 +99,70 @@ func registerAppRoutes(
 		NeedsPermission(rbac.PermUpdatePublish, rbac.FallbackAdminOnly))
 	app.route(http.MethodPost, "/branch/{BRANCH}/runtimeVersion/{RUNTIME_VERSION}/republish", container.UpdateHandler.RepublishUpdateHandler,
 		NeedsPermission(rbac.PermUpdatePublish, rbac.FallbackAdminOnly))
+
+	app.route(http.MethodGet, "/identifiers", container.AppIdentifiersHandler.GetAppIdentifiersHandler,
+		AnyViewer())
+	app.route(http.MethodPost, "/identifiers", container.AppIdentifiersHandler.CreateAppIdentifierHandler,
+		NeedsPermission(rbac.PermCredentialsManage, rbac.FallbackAdminOnly))
+	app.route(http.MethodDelete, "/identifiers/{IDENTIFIER_ID}", container.AppIdentifiersHandler.DeleteAppIdentifierHandler,
+		NeedsPermission(rbac.PermCredentialsManage, rbac.FallbackAdminOnly))
+	app.route(http.MethodPut, "/identifiers/{IDENTIFIER_ID}/build-number", container.AppIdentifiersHandler.SetBuildNumberHandler,
+		NeedsPermission(rbac.PermCredentialsManage, rbac.FallbackAdminOnly))
+	app.route(http.MethodGet, "/identifiers/{IDENTIFIER_ID}/credentials/android", container.CredentialsHandler.GetAndroidCredentialsHandler,
+		AnyViewer())
+	app.route(http.MethodPut, "/identifiers/{IDENTIFIER_ID}/credentials/android", container.CredentialsHandler.PutAndroidCredentialsHandler,
+		NeedsPermission(rbac.PermCredentialsManage, rbac.FallbackAdminOnly))
+	app.route(http.MethodPost, "/identifiers/{IDENTIFIER_ID}/credentials/android/generate", container.CredentialsHandler.GenerateAndroidCredentialsHandler,
+		NeedsPermission(rbac.PermCredentialsManage, rbac.FallbackAdminOnly))
+	app.route(http.MethodGet, "/identifiers/{IDENTIFIER_ID}/credentials/android/download", container.CredentialsHandler.DownloadAndroidKeystoreHandler,
+		NeedsPermission(rbac.PermCredentialsManage, rbac.FallbackAdminOnly))
+	app.route(http.MethodPut, "/identifiers/{IDENTIFIER_ID}/credentials/android/google-play-service-account", container.CredentialsHandler.PutGooglePlayServiceAccountHandler,
+		NeedsPermission(rbac.PermCredentialsManage, rbac.FallbackAdminOnly))
+	app.route(http.MethodDelete, "/identifiers/{IDENTIFIER_ID}/credentials/android/google-play-service-account", container.CredentialsHandler.DeleteGooglePlayServiceAccountHandler,
+		NeedsPermission(rbac.PermCredentialsManage, rbac.FallbackAdminOnly))
+	app.route(http.MethodDelete, "/identifiers/{IDENTIFIER_ID}/credentials/android", container.CredentialsHandler.DeleteAndroidCredentialsHandler,
+		NeedsPermission(rbac.PermCredentialsManage, rbac.FallbackAdminOnly))
+	app.route(http.MethodGet, "/identifiers/{IDENTIFIER_ID}/credentials/ios", container.IosCredentialsHandler.GetIosCredentialsHandler,
+		AnyViewer())
+	app.route(http.MethodGet, "/identifiers/{IDENTIFIER_ID}/credentials/ios/certificates", container.IosCredentialsHandler.ListIosSigningCertificatesHandler,
+		NeedsPermission(rbac.PermCredentialsManage, rbac.FallbackAdminOnly))
+	app.route(http.MethodPost, "/identifiers/{IDENTIFIER_ID}/credentials/ios/certificates/import", container.IosCredentialsHandler.ImportIosCertificateHandler,
+		NeedsPermission(rbac.PermCredentialsManage, rbac.FallbackAdminOnly))
+	app.route(http.MethodPut, "/identifiers/{IDENTIFIER_ID}/credentials/ios/signing", container.IosCredentialsHandler.PutIosSigningSettingHandler,
+		NeedsPermission(rbac.PermCredentialsManage, rbac.FallbackAdminOnly))
+	app.route(http.MethodGet, "/apple/api-key", container.IosCredentialsHandler.GetAppStoreConnectApiKeyHandler,
+		AnyViewer())
+	app.route(http.MethodPut, "/apple/api-key", container.IosCredentialsHandler.PutAppStoreConnectApiKeyHandler,
+		NeedsPermission(rbac.PermCredentialsManage, rbac.FallbackAdminOnly))
+	app.route(http.MethodDelete, "/apple/api-key", container.IosCredentialsHandler.DeleteAppStoreConnectApiKeyHandler,
+		NeedsPermission(rbac.PermCredentialsManage, rbac.FallbackAdminOnly))
+	app.route(http.MethodPost, "/ios/device-invitations", container.IosCredentialsHandler.CreateIosDeviceInvitationHandler,
+		NeedsPermission(rbac.PermCredentialsManage, rbac.FallbackAdminOnly))
+	app.route(http.MethodGet, "/ios/device-invitations", container.IosCredentialsHandler.ListIosDeviceInvitationsHandler,
+		AnyViewer())
+	app.route(http.MethodDelete, "/ios/device-invitations/{INVITATION_ID}", container.IosCredentialsHandler.RevokeIosDeviceInvitationHandler,
+		NeedsPermission(rbac.PermCredentialsManage, rbac.FallbackAdminOnly))
+	app.route(http.MethodGet, "/ios/devices", container.IosCredentialsHandler.ListAppleDevicesHandler,
+		NeedsPermission(rbac.PermCredentialsManage, rbac.FallbackAdminOnly))
+	app.route(http.MethodPost, "/ios/devices/{DEVICE_ID}/disable", container.IosCredentialsHandler.DisableAppleDeviceHandler,
+		NeedsPermission(rbac.PermCredentialsManage, rbac.FallbackAdminOnly))
+	app.route(http.MethodPost, "/ios/devices/{DEVICE_ID}/enable", container.IosCredentialsHandler.EnableAppleDeviceHandler,
+		NeedsPermission(rbac.PermCredentialsManage, rbac.FallbackAdminOnly))
+
+	app.route(http.MethodGet, "/environments", container.EnvironmentsHandler.ListEnvironmentsHandler,
+		AnyViewer())
+	app.route(http.MethodPost, "/environments", container.EnvironmentsHandler.CreateEnvironmentHandler,
+		NeedsPermission(rbac.PermEnvManage, rbac.FallbackAdminOnly))
+	app.route(http.MethodDelete, "/environments/{ENVIRONMENT}", container.EnvironmentsHandler.DeleteEnvironmentHandler,
+		NeedsPermission(rbac.PermEnvManage, rbac.FallbackAdminOnly))
+	app.route(http.MethodPut, "/environments/{ENVIRONMENT}/vars/{KEY}", container.EnvironmentsHandler.SetEnvVarHandler,
+		NeedsPermission(rbac.PermEnvManage, rbac.FallbackAdminOnly))
+	app.route(http.MethodGet, "/environments/{ENVIRONMENT}/vars/{KEY}/value", container.EnvironmentsHandler.RevealEnvVarHandler,
+		NeedsPermission(rbac.PermEnvRead, rbac.FallbackAnyMember))
+	app.route(http.MethodDelete, "/environments/{ENVIRONMENT}/vars/{KEY}", container.EnvironmentsHandler.DeleteEnvVarHandler,
+		NeedsPermission(rbac.PermEnvManage, rbac.FallbackAdminOnly))
+	app.route(http.MethodPut, "/channels/{CHANNEL}/environment", container.EnvironmentsHandler.SetChannelEnvironmentHandler,
+		NeedsPermission(rbac.PermEnvManage, rbac.FallbackAdminOnly))
 
 	app.route(http.MethodGet, "/apiKeys", container.ApiKeyHandler.GetApiKeysHandler,
 		AnyViewer())

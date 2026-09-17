@@ -1333,3 +1333,23 @@ func TestResolveAssetUpdateTiers(t *testing.T) {
 		assert.Equal(t, "100", servedUpdate.UpdateId)
 	})
 }
+
+func (fakeRolloutBucket) GetBuildArtifact(context.Context, bucket.BuildArtifact, bool) (*types.BucketFile, error) {
+	return nil, nil
+}
+
+func (fakeRolloutBucket) PutBuildArtifact(context.Context, bucket.BuildArtifact, bool, io.Reader) error {
+	return nil
+}
+
+func (fakeRolloutBucket) DeleteBuildArtifact(context.Context, bucket.BuildArtifact, bool) error {
+	return nil
+}
+
+func (fakeRolloutBucket) RequestBuildArtifactUploadURL(context.Context, string, bucket.BuildArtifact) (*bucket.UploadRequest, error) {
+	return &bucket.UploadRequest{Method: "PUT"}, nil
+}
+
+func (fakeRolloutBucket) RequestBuildArtifactDownloadURL(context.Context, bucket.BuildArtifact, time.Time) (string, error) {
+	return "", nil
+}

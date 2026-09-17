@@ -172,6 +172,229 @@ export type BranchUpdateState = {
   rolloutPercentage?: number | null;
 };
 
+export type AppIdentifier = {
+  id: string;
+  platform: 'ios' | 'android';
+  identifier: string;
+  buildNumber: string;
+  hasAndroidCredentials: boolean;
+  hasIosCredentials: boolean;
+  createdAt: string;
+};
+
+// The non-secret projection of stored Android signing credentials. Secrets
+// (keystore, passwords, service account key) never come back down; the only
+// signal is hasGoogleServiceAccountKey.
+export type AndroidCredentialsMetadata = {
+  identifier: string;
+  keyAlias: string;
+  hasGoogleServiceAccountKey: boolean;
+  googleServiceAccountEmail?: string;
+  googleServiceAccountProjectId?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+// `keystore` is the keystore file base64-encoded.
+export type AndroidCredentialsPayload = {
+  keyAlias: string;
+  keystore: string;
+  keystorePassword: string;
+  keyPassword: string;
+};
+
+export type IosCertificate = {
+  id: string;
+  commonName: string;
+  serialNumber: string;
+  type: 'distribution' | 'development';
+  teamId: string;
+  expiresAt: string;
+};
+
+// `certificateMissing`: the selected certificate was deleted, so `certificate` is null.
+export type IosSigningSetting = {
+  mode: 'automatic' | 'certificate';
+  certificate: IosCertificate | null;
+  certificateMissing: boolean;
+};
+
+export type IosCredentialsMetadata = {
+  identifier: string;
+  signing: IosSigningSetting;
+};
+
+export type IosSigningPayload =
+  | { mode: 'automatic' }
+  | { mode: 'certificate'; certificateId: string };
+
+export type AppleApiKey = {
+  keyId: string;
+  issuerId: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type AppleApiKeyPayload = {
+  keyId: string;
+  issuerId: string;
+  privateKey: string;
+};
+
+// A distribution certificate of the Apple team; `selectable` when xprem holds its private key.
+export type AppleDistributionCertificate = {
+  appleId: string;
+  name: string;
+  serialNumber: string;
+  expiresAt: string;
+  fingerprintSha1: string;
+  xpremCertificateId: string | null;
+  selectable: boolean;
+};
+
+// A device of the Apple team; `status` and `deviceClass` are Apple's values.
+// `product` and `osVersion` come from xprem's registration record: '' for a device added outside xprem.
+export type AppleDevice = {
+  id: string;
+  name: string;
+  udid: string;
+  deviceClass: string;
+  model: string;
+  product: string;
+  osVersion: string;
+  status: 'ENABLED' | 'DISABLED';
+  addedAt: string;
+  registeredVia: { invitationId: string; label: string; registeredAt: string } | null;
+};
+
+export type IosDeviceInvitation = {
+  id: string;
+  label: string;
+  expiresAt: string;
+  revokedAt: string | null;
+  createdAt: string;
+  createdBy: string;
+  status: 'pending' | 'used' | 'expired' | 'revoked';
+  // The iPhone registered with the link, once used.
+  device: { name: string; product: string } | null;
+};
+
+export type CreateIosDeviceInvitationResponse = {
+  invitation: IosDeviceInvitation;
+  url: string;
+};
+
+export type DeviceRegistrationLink = {
+  appName: string;
+  label: string;
+  expiresAt: string;
+};
+
+export type PublicResult<T> = { status: 'ok'; data: T } | { status: 'invalid-link' | 'used' };
+
+export type DeviceRegistrationStatus = {
+  status: 'registered' | 'failed';
+  deviceName: string;
+  product: string;
+  error: string | null;
+};
+
+// One variable of an environment: metadata only, the value stays server side
+// until explicitly revealed.
+export type EnvVarRecord = {
+  key: string;
+  isPublic: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+// A named set of variables (production, staging, ...). Channels may point to
+// one as their default; that binding is on ChannelRecord.environmentName.
+export type EnvironmentRecord = {
+  id: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+  vars: EnvVarRecord[];
+};
+
+// What the CLI recorded about a local build. Never carries environment
+// variable values, only the environment name the build used.
+export type BuildMachine = {
+  hostname?: string;
+  os?: string;
+  arch?: string;
+  node?: string;
+  tools?: Record<string, string>;
+  ci?: string;
+  ciRunUrl?: string;
+};
+
+export type BuildMetadata = {
+  profile: string;
+  mode?: 'debug' | 'release';
+  distribution?: 'app-store' | 'ad-hoc';
+  environment?: string;
+  channel?: string;
+  version?: string;
+  buildNumber?: string;
+  runtimeVersion?: string;
+  fingerprint?: string;
+  expoSdk?: string;
+  cliVersion: string;
+  gitCommit?: string;
+  gitMessage?: string;
+  gitDirty?: boolean;
+  machine?: BuildMachine;
+  startedAt: string;
+  finishedAt?: string;
+  durationMs?: number;
+};
+
+export type BuildStatus = 'building' | 'uploading' | 'ready' | 'failed';
+export type BuildArtifactType = 'apk' | 'aab' | 'ipa';
+
+// One build the CLI uploaded to the registry. `readyAt` is set once the
+// artifact was fully stored; a build stays `uploading` until then.
+export type BuildRecord = {
+  id: string;
+  appId: string;
+  appIdentifierId: string;
+  platform: 'android' | 'ios';
+  applicationId: string;
+  status: BuildStatus;
+  artifactType: BuildArtifactType;
+  size: number;
+  sha256: string;
+  createdAt: string;
+  readyAt?: string;
+  actorType: string;
+  actorId: string;
+  actorDisplay: string;
+  metadata: BuildMetadata;
+};
+
+export type BuildsPage = {
+  builds: BuildRecord[];
+  // The total for the app, offset excluded.
+  count: number;
+  nextCursor?: string;
+};
+
+// An install link on a build. The bearer URL is returned once, on creation,
+// and never comes back down: a listed share is only known by its expiry.
+export type BuildShareRecord = {
+  id: string;
+  createdAt: string;
+  expiresAt: string;
+  revokedAt?: string;
+};
+
+export type CreateBuildShareResponse = {
+  share: BuildShareRecord;
+  url: string;
+};
+
 export type BranchRecord = {
   branchName: string;
   branchId: string;
@@ -210,6 +433,9 @@ export type ChannelRecord = {
   rolloutBranchCurrentUpdate?: BranchUpdateState | null;
   // Absent in stateless mode, where the setting does not exist.
   branchSurfing?: BranchSurfingRecord | null;
+  // Environment the channel points to by default; absent when unbound or in
+  // stateless mode.
+  environmentName?: string | null;
 };
 
 // Which branches a device polling this channel may ask to be served instead of
@@ -694,30 +920,41 @@ export type CreateApiKeyResponse = {
   apiKey: string;
 };
 
-// What one API token is allowed to do (/apiKeys/access, control-plane only).
-//
-// An empty branchRules means the token reaches EVERY branch, which is the
-// default of a fresh token and the only state a community deployment sees.
-// Empty allowedIps means it can be used from any source address.
-//
-// There is no separate say over creating a branch: publishing to a branch that
-// does not exist is how the CLI opens one, so a rule that admits the name
-// admits the creation.
+// Enterprise token permissions. Empty Updates rules grant no access; empty Build
+// and Submit rules are unrestricted within the app. An empty IP allowlist permits
+// any source address. MIT ignores these restrictions.
 export type ApiKeyAccessRecord = {
   apiKeyId: string;
-  branchRules: BranchRuleRecord[];
+  updates: { rules: UpdateRuleRecord[] };
+  build: { rules: BuildRuleRecord[] };
+  submit: { rules: SubmitRuleRecord[] };
+  environments: { rules: EnvironmentRuleRecord[] };
   allowedIps: string[];
+};
+
+// An environment name or a "*" pattern whose variables the token may read. No rule means every
+// environment.
+export type EnvironmentRuleRecord = { pattern: string };
+
+export type BuildAction = 'create';
+export type BuildRuleRecord = { appIdentifierId: string; actions: BuildAction[] };
+export type SubmitAction = 'upload';
+export type SubmitDestination = 'internal' | 'alpha' | 'beta' | 'production' | 'testflight';
+export type SubmitRuleRecord = {
+  appIdentifierId: string;
+  destination: SubmitDestination;
+  actions: SubmitAction[];
 };
 
 // One rule: a branch name or a "*" pattern, and what the token may do there.
 // Both writes imply read on the server, so a rule granting publish also grants
 // the reads eoas performs before publishing.
-export type BranchRuleRecord = {
+export type UpdateRuleRecord = {
   pattern: string;
-  actions: BranchRuleAction[];
+  actions: UpdateAction[];
 };
 
-export type BranchRuleAction = 'read' | 'publish' | 'rollback';
+export type UpdateAction = 'read' | 'publish' | 'rollback';
 
 // A dashboard user account. `id` is empty in stateless mode, where the only
 // account comes from ADMIN_EMAIL and is not a database row. `lastConnectedAt`
@@ -911,14 +1148,12 @@ export class ApiClient {
       headers.set('Authorization', `Bearer ${token}`);
     }
   }
-  // Every endpoint answers JSON except the certificate route, which serves a
-  // PEM. That one exception used to justify a second fetch site with its own
-  // copy of the auth handling below; naming the body format here keeps the
-  // retry, the token refresh and the error mapping in one place.
+  // Most endpoints answer JSON; downloads opt into their response body format.
+  // Keeping that choice here also keeps auth refresh and error mapping in one place.
   private async request<T>(
     endpoint: string,
     options: RequestInit = {},
-    parse: 'json' | 'text' = 'json'
+    parse: 'json' | 'text' | 'blob' = 'json'
   ): Promise<T> {
     const url = `${this.baseUrl}${endpoint}`;
     // Rebuilt per attempt, so the retry below picks up the token the refresh
@@ -958,7 +1193,9 @@ export class ApiClient {
       return (parse === 'text' ? '' : {}) as T;
     }
 
-    return (parse === 'text' ? response.text() : response.json()) as Promise<T>;
+    if (parse === 'text') return response.text() as Promise<T>;
+    if (parse === 'blob') return response.blob() as Promise<T>;
+    return response.json() as Promise<T>;
   }
 
   // Refresh tokens are single-use on the server: presenting one retires it and
@@ -1430,16 +1667,8 @@ export class ApiClient {
     });
   }
 
-  // The whole access of a token is replaced at once, so every field has to be
-  // sent every time: an omitted branchRules would not mean "leave them alone",
-  // it would clear the list, which the server reads as "every branch".
-  public async setApiKeyAccess(
-    apiKeyId: string,
-    access: {
-      branchRules: BranchRuleRecord[];
-      allowedIps: string[];
-    }
-  ) {
+  // Replace both permission domains and the IP allowlist together.
+  public async setApiKeyAccess(apiKeyId: string, access: Omit<ApiKeyAccessRecord, 'apiKeyId'>) {
     return this.request<void>(`${this.appScope()}/apiKeys/${encodeURIComponent(apiKeyId)}/access`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -1485,6 +1714,380 @@ export class ApiClient {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
+      }
+    );
+  }
+
+  public async getAppIdentifiers() {
+     return this.request<AppIdentifier[]>(`${this.appScope()}/identifiers`, {
+      method: 'GET',
+    });
+  }
+
+  public async createAppIdentifier(payload: { platform: 'ios' | 'android'; identifier: string }) {
+    return this.request<{ identifierId: string }>(`${this.appScope()}/identifiers`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  }
+
+  public async deleteAppIdentifier(identifierId: string) {
+    return this.request<void>(
+      `${this.appScope()}/identifiers/${encodeURIComponent(identifierId)}`,
+      {
+        method: 'DELETE',
+      }
+    );
+  }
+
+  public async setAppIdentifierBuildNumber(identifierId: string, buildNumber: string) {
+    return this.request<void>(
+      `${this.appScope()}/identifiers/${encodeURIComponent(identifierId)}/build-number`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ buildNumber }),
+      }
+    );
+  }
+
+  // `null` means the identifier has no Android credentials configured yet:
+  // the form renders empty instead of surfacing an error.
+  public async getAndroidCredentials(identifierId: string): Promise<AndroidCredentialsMetadata | null> {
+    try {
+      return await this.request<AndroidCredentialsMetadata>(
+        `${this.appScope()}/identifiers/${encodeURIComponent(identifierId)}/credentials/android`,
+        { method: 'GET' }
+      );
+    } catch (error) {
+      if (error instanceof ApiProblemError && error.status === 404) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  public async saveAndroidCredentials(identifierId: string, payload: AndroidCredentialsPayload) {
+    return this.request<void>(
+      `${this.appScope()}/identifiers/${encodeURIComponent(identifierId)}/credentials/android`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      }
+    );
+  }
+
+  public async generateAndroidCredentials(identifierId: string) {
+    return this.request<void>(
+      `${this.appScope()}/identifiers/${encodeURIComponent(identifierId)}/credentials/android/generate`,
+      { method: 'POST' }
+    );
+  }
+
+  public async downloadAndroidKeystore(identifierId: string) {
+    return this.request<Blob>(
+      `${this.appScope()}/identifiers/${encodeURIComponent(identifierId)}/credentials/android/download`,
+      { method: 'GET' },
+      'blob'
+    );
+  }
+
+  public async saveGooglePlayServiceAccountKey(identifierId: string, serviceAccountKey: string) {
+    return this.request<void>(
+      `${this.appScope()}/identifiers/${encodeURIComponent(identifierId)}/credentials/android/google-play-service-account`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ serviceAccountKey }),
+      }
+    );
+  }
+
+  public async deleteGooglePlayServiceAccountKey(identifierId: string) {
+    return this.request<void>(
+      `${this.appScope()}/identifiers/${encodeURIComponent(identifierId)}/credentials/android/google-play-service-account`,
+      { method: 'DELETE' }
+    );
+  }
+
+  /** Returns the selected app Apple API key metadata, never its private key. */
+  public async getAppleApiKey() {
+    const response = await this.request<{ apiKey: AppleApiKey | null }>(
+      `${this.appScope()}/apple/api-key`,
+      { method: 'GET' }
+    );
+    return response.apiKey;
+  }
+
+  /** Validates and saves an App Store Connect team key for the selected app. */
+  public async saveAppleApiKey(payload: AppleApiKeyPayload) {
+    const response = await this.request<{ apiKey: AppleApiKey | null }>(
+      `${this.appScope()}/apple/api-key`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      }
+    );
+    return response.apiKey;
+  }
+
+  /** Deletes the selected app App Store Connect key. */
+  public async deleteAppleApiKey() {
+    return this.request<void>(`${this.appScope()}/apple/api-key`, { method: 'DELETE' });
+  }
+
+  /** Loads the identifier signing mode and selected certificate metadata. */
+  public async getIosCredentials(identifierId: string) {
+    return this.request<IosCredentialsMetadata>(
+      `${this.appScope()}/identifiers/${encodeURIComponent(identifierId)}/credentials/ios`,
+      { method: 'GET' }
+    );
+  }
+
+  /** Saves the identifier shared signing choice for its iOS build destinations. */
+  public async updateIosSigning(identifierId: string, payload: IosSigningPayload) {
+    return this.request<IosCredentialsMetadata>(
+      `${this.appScope()}/identifiers/${encodeURIComponent(identifierId)}/credentials/ios/signing`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      }
+    );
+  }
+
+  /** Stores the private key of an Apple certificate created outside xprem; answers the updated list. */
+  public async importIosCertificate(
+    identifierId: string,
+    payload: { fingerprintSha1: string; certificateP12: string; certificatePassword: string }
+  ) {
+    const response = await this.request<{ certificates: AppleDistributionCertificate[] }>(
+      `${this.appScope()}/identifiers/${encodeURIComponent(identifierId)}/credentials/ios/certificates/import`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      }
+    );
+    return response.certificates;
+  }
+
+  /** Lists Apple certificates and whether xprem holds each private key. */
+  public async getAppleDistributionCertificates(identifierId: string) {
+    const response = await this.request<{ certificates: AppleDistributionCertificate[] }>(
+      `${this.appScope()}/identifiers/${encodeURIComponent(identifierId)}/credentials/ios/certificates`,
+      { method: 'GET' }
+    );
+    return response.certificates;
+  }
+
+  /** Lists the Apple team devices with local invitation metadata. */
+  public async getIosDevices() {
+    const response = await this.request<{ devices: AppleDevice[] }>(
+      `${this.appScope()}/ios/devices`,
+      { method: 'GET' }
+    );
+    return response.devices;
+  }
+
+  /** Lists registration invitations, including consumed, expired and revoked links. */
+  public async getIosDeviceInvitations() {
+    const response = await this.request<{ invitations: IosDeviceInvitation[] }>(
+      `${this.appScope()}/ios/device-invitations`,
+      { method: 'GET' }
+    );
+    return response.invitations;
+  }
+
+  /** The only call that returns the registration URL; there is no way to read it back later. */
+  public async createIosDeviceInvitation(payload: { label: string; expiresInHours: number }) {
+    return this.request<CreateIosDeviceInvitationResponse>(
+      `${this.appScope()}/ios/device-invitations`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      }
+    );
+  }
+
+  /** Revokes an invitation so it cannot start another enrollment. */
+  public async revokeIosDeviceInvitation(invitationId: string) {
+    return this.request<void>(
+      `${this.appScope()}/ios/device-invitations/${encodeURIComponent(invitationId)}`,
+      { method: 'DELETE' }
+    );
+  }
+
+  /** Disables a device in the selected app Apple team. */
+  public async disableIosDevice(deviceId: string) {
+    return this.request<void>(
+      `${this.appScope()}/ios/devices/${encodeURIComponent(deviceId)}/disable`,
+      { method: 'POST' }
+    );
+  }
+
+  /** Re-enables a device in the selected app Apple team. */
+  public async enableIosDevice(deviceId: string) {
+    return this.request<void>(
+      `${this.appScope()}/ios/devices/${encodeURIComponent(deviceId)}/enable`,
+      { method: 'POST' }
+    );
+  }
+
+  /** Public endpoints of the iPhone registration page: plain fetches, so no session is sent. */
+  public async getDeviceRegistrationLink(token: string) {
+    return this.fetchPublic<DeviceRegistrationLink>(
+      `/device-registrations/${encodeURIComponent(token)}`
+    );
+  }
+
+  /** Reads a public registration result using its invitation token without a session. */
+  public async getDeviceRegistrationStatus(token: string, registrationId: string) {
+    return this.fetchPublic<DeviceRegistrationStatus>(
+      `/device-registrations/${encodeURIComponent(token)}/registrations/${encodeURIComponent(registrationId)}`
+    );
+  }
+
+  /** Builds the download URL of an invitation Profile Service configuration. */
+  public deviceRegistrationProfileUrl(token: string) {
+    return `${this.baseUrl}/device-registrations/${encodeURIComponent(token)}/profile`;
+  }
+
+  /** 404 is an unknown, expired or revoked link; 410 a link that already registered its iPhone. */
+  private async fetchPublic<T>(endpoint: string): Promise<PublicResult<T>> {
+    const response = await fetch(`${this.baseUrl}${endpoint}`, { credentials: 'omit' });
+    if (response.status === 404) return { status: 'invalid-link' };
+    if (response.status === 410) return { status: 'used' };
+    if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
+    return { status: 'ok', data: (await response.json()) as T };
+  }
+
+  public async getBuilds(limit = 20, cursor?: string) {
+    const query = new URLSearchParams({ limit: String(limit) });
+    if (cursor) query.set('cursor', cursor);
+    return this.request<BuildsPage>(`${this.appScope()}/builds?${query.toString()}`, {
+      method: 'GET',
+    });
+  }
+
+  public async getBuild(buildId: string) {
+    return this.request<BuildRecord>(`${this.appScope()}/builds/${encodeURIComponent(buildId)}`, {
+      method: 'GET',
+    });
+  }
+
+  public async getBuildLogs(buildId: string, after = 0, signal?: AbortSignal) {
+    return this.request<{
+      chunks: { offset: number; content: string; format: 'text' | 'ndjson'; createdAt: string }[];
+      nextOffset: number;
+    }>(`${this.appScope()}/builds/${encodeURIComponent(buildId)}/logs?after=${after}`, {
+      method: 'GET', signal,
+    });
+  }
+
+  public async downloadBuildArtifact(buildId: string) {
+    return this.request<Blob>(
+      `${this.appScope()}/builds/${encodeURIComponent(buildId)}/download`,
+      { method: 'GET' },
+      'blob'
+    );
+  }
+
+  public async getBuildShares(buildId: string) {
+    return this.request<{ shares: BuildShareRecord[] }>(
+      `${this.appScope()}/builds/${encodeURIComponent(buildId)}/shares`,
+      { method: 'GET' }
+    );
+  }
+
+  // The only call that returns the install URL; there is no way to read it
+  // back later.
+  public async createBuildShare(buildId: string, expiresInHours: number) {
+    return this.request<CreateBuildShareResponse>(
+      `${this.appScope()}/builds/${encodeURIComponent(buildId)}/shares`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ expiresInHours }),
+      }
+    );
+  }
+
+  public async revokeBuildShare(buildId: string, shareId: string) {
+    return this.request<void>(
+      `${this.appScope()}/builds/${encodeURIComponent(buildId)}/shares/${encodeURIComponent(shareId)}`,
+      { method: 'DELETE' }
+    );
+  }
+
+  public async getEnvironments() {
+    return this.request<EnvironmentRecord[]>(`${this.appScope()}/environments`, {
+      method: 'GET',
+    });
+  }
+
+  public async createEnvironment(name: string) {
+    return this.request<{ id: string; name: string }>(`${this.appScope()}/environments`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+  }
+
+  public async deleteEnvironment(environment: string) {
+    return this.request<void>(
+      `${this.appScope()}/environments/${encodeURIComponent(environment)}`,
+      {
+        method: 'DELETE',
+      }
+    );
+  }
+
+  public async setEnvVar(
+    environment: string,
+    key: string,
+    payload: { value: string; isPublic: boolean }
+  ) {
+    return this.request<void>(
+      `${this.appScope()}/environments/${encodeURIComponent(environment)}/vars/${encodeURIComponent(key)}`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      }
+    );
+  }
+
+  public async revealEnvVar(environment: string, key: string) {
+    return this.request<{ value: string }>(
+      `${this.appScope()}/environments/${encodeURIComponent(environment)}/vars/${encodeURIComponent(key)}/value`,
+      {
+        method: 'GET',
+      }
+    );
+  }
+
+  public async deleteEnvVar(environment: string, key: string) {
+    return this.request<void>(
+      `${this.appScope()}/environments/${encodeURIComponent(environment)}/vars/${encodeURIComponent(key)}`,
+      {
+        method: 'DELETE',
+      }
+    );
+  }
+
+  // null unbinds the channel from its environment.
+  public async setChannelEnvironment(channelName: string, environment: string | null) {
+    return this.request<void>(
+      `${this.appScope()}/channels/${encodeURIComponent(channelName)}/environment`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ environment }),
       }
     );
   }

@@ -78,9 +78,11 @@ SELECT channels.*, branches.name as branch_name,
     rcu.runtime_version AS rollout_branch_current_runtime_version,
     rcu.commit_hash AS rollout_branch_current_commit_hash,
     rcu.created_at AS rollout_branch_current_update_created_at,
-    rcu.rollout_percentage AS rollout_branch_current_rollout_percentage
+    rcu.rollout_percentage AS rollout_branch_current_rollout_percentage,
+    env.name AS environment_name
 FROM channels
 LEFT JOIN branches ON channels.branch_id = branches.id AND branches.app_id = channels.app_id
+LEFT JOIN environments env ON env.id = channels.environment_id
 LEFT JOIN channel_rollouts cr ON cr.channel_id = channels.id
 LEFT JOIN branches rb ON cr.rollout_branch_id = rb.id
 LEFT JOIN current_updates bcu ON bcu.branch_id = channels.branch_id
@@ -954,26 +956,49 @@ WHERE issuer = $1 AND subject = $2;
 -- queries above.
 
 -- name: GetApiKeyAccess :many
--- Enforcement read for one authenticated key on the CLI request hot path: the
--- IP allow-list, the branch-creation flag and the branch rules in one round
--- trip. A key with no rule yields a single row with a NULL pattern, which is
--- the unrestricted default.
---
--- revoked_at IS NULL is redundant with authentication, which already refuses a
--- revoked key, and it is here anyway: this is the last read before a publish is
--- authorised, so it costs nothing to make "zero rows" mean exactly what the
--- caller treats it as, a key that may no longer act.
-SELECT k.allowed_ips, r.pattern, r.actions
-FROM api_keys k
-LEFT JOIN api_key_branch_rules r ON r.api_key_id = k.id
-WHERE k.id = $1 AND k.revoked_at IS NULL;
+-- Read a live key and all of its permission domains from one database snapshot.
+-- Native rules must still target a registered identifier in this app, and a
+-- Submit destination must match that identifier's current platform.
+-- A key without rules yields one row with an empty domain; no key yields none.
+WITH active_key AS (
+    SELECT k.id, k.app_id, k.allowed_ips
+    FROM api_keys k
+    WHERE k.id = sqlc.arg('api_key_id') AND k.app_id = sqlc.arg('app_id') AND k.revoked_at IS NULL
+), rules AS (
+    SELECT 'updates'::TEXT AS domain, r.pattern, NULL::UUID AS app_identifier_id,
+           ''::TEXT AS destination, r.actions
+    FROM api_key_update_rules r
+    JOIN active_key k ON k.id = r.api_key_id
+    UNION ALL
+    SELECT 'build'::TEXT, ''::TEXT, r.app_identifier_id, ''::TEXT, r.actions
+    FROM api_key_build_rules r
+    JOIN active_key k ON k.id = r.api_key_id AND k.app_id = r.app_id
+    JOIN app_identifiers i ON i.id = r.app_identifier_id AND i.app_id = k.app_id
+    UNION ALL
+    SELECT 'submit'::TEXT, ''::TEXT, r.app_identifier_id, r.destination, r.actions
+    FROM api_key_submit_rules r
+    JOIN active_key k ON k.id = r.api_key_id AND k.app_id = r.app_id
+    JOIN app_identifiers i ON i.id = r.app_identifier_id AND i.app_id = k.app_id
+    WHERE (i.platform = 'android' AND r.destination IN ('internal', 'alpha', 'beta', 'production'))
+       OR (i.platform = 'ios' AND r.destination = 'testflight')
+    UNION ALL
+    SELECT 'environments'::TEXT, r.pattern, NULL::UUID, ''::TEXT, ARRAY[]::TEXT[]
+    FROM api_key_environment_rules r
+    JOIN active_key k ON k.id = r.api_key_id
+)
+SELECT k.allowed_ips, COALESCE(r.domain, '')::TEXT AS domain,
+       COALESCE(r.pattern, '')::TEXT AS pattern, r.app_identifier_id,
+       COALESCE(r.destination, '')::TEXT AS destination, r.actions
+FROM active_key k
+LEFT JOIN rules r ON TRUE
+ORDER BY r.domain, r.pattern, r.app_identifier_id, r.destination;
 
 -- name: GetApiKeyAccessByAppID :many
--- Same shape for the dashboard, over every live key of one app. Ordered so
--- the caller can fold consecutive rows into one key without a map.
+-- Updates rules for the dashboard, over every live key of one app. Ordered
+-- so the caller can fold consecutive rows into one key without a map.
 SELECT k.id, k.allowed_ips, r.pattern, r.actions
 FROM api_keys k
-LEFT JOIN api_key_branch_rules r ON r.api_key_id = k.id
+LEFT JOIN api_key_update_rules r ON r.api_key_id = k.id
 WHERE k.app_id = $1 AND k.revoked_at IS NULL
 ORDER BY k.id, r.id;
 
@@ -982,14 +1007,14 @@ UPDATE api_keys
 SET allowed_ips = $1
 WHERE id = $2 AND app_id = $3 AND revoked_at IS NULL;
 
--- name: DeleteApiKeyBranchRules :exec
+-- name: DeleteApiKeyUpdateRules :exec
 -- The rules of one key are replaced wholesale, inside the same transaction as
 -- UpdateApiKeyAccess: a partial write would leave a key granting something
 -- nobody asked for.
-DELETE FROM api_key_branch_rules WHERE api_key_id = $1;
+DELETE FROM api_key_update_rules WHERE api_key_id = $1;
 
--- name: InsertApiKeyBranchRule :exec
-INSERT INTO api_key_branch_rules (api_key_id, pattern, actions)
+-- name: InsertApiKeyUpdateRule :exec
+INSERT INTO api_key_update_rules (api_key_id, pattern, actions)
 VALUES ($1, $2, $3);
 
 -- name: SetBranchProtected :execrows
@@ -2486,6 +2511,150 @@ WHERE b.app_id = $1 AND rv.version = $2 AND u.platform = @platform::text
 GROUP BY b.id, b.name
 ORDER BY MAX(u.created_at) DESC, b.name ASC;
 
+-- name: UpsertAndroidCredentials :one
+INSERT INTO android_credentials (
+    id, app_identifier_id, key_alias,
+    sealed_keystore, sealed_keystore_password, sealed_key_password,
+    sealed_google_service_account_key
+) VALUES ($1, $2, $3, $4, $5, $6, $7)
+ON CONFLICT (app_identifier_id) DO UPDATE SET
+    key_alias = EXCLUDED.key_alias,
+    sealed_keystore = EXCLUDED.sealed_keystore,
+    sealed_keystore_password = EXCLUDED.sealed_keystore_password,
+    sealed_key_password = EXCLUDED.sealed_key_password,
+    updated_at = CURRENT_TIMESTAMP
+RETURNING id;
+
+-- name: UpdateGooglePlayServiceAccountKey :execresult
+-- updated_at belongs to the signing keystore shown in the dashboard; changing
+-- the independently managed service account must not make that timestamp lie.
+UPDATE android_credentials
+SET sealed_google_service_account_key = $2,
+    google_service_account_email = $3,
+    google_service_account_project_id = $4
+WHERE app_identifier_id = $1;
+
+-- name: GetAndroidCredentialsByIdentifierID :one
+SELECT id, app_identifier_id, key_alias,
+       sealed_keystore, sealed_keystore_password, sealed_key_password,
+       sealed_google_service_account_key,
+       google_service_account_email, google_service_account_project_id,
+       created_at, updated_at
+FROM android_credentials
+WHERE app_identifier_id = $1;
+
+-- name: DeleteAndroidCredentialsByIdentifierID :execresult
+DELETE FROM android_credentials WHERE app_identifier_id = $1;
+
+-- name: InsertAppIdentifier :one
+INSERT INTO app_identifiers (id, app_id, platform, identifier)
+VALUES ($1, $2, $3, $4)
+RETURNING id;
+
+-- name: GetAppIdentifiersByAppID :many
+SELECT ai.id, ai.platform, ai.identifier, ai.build_number, ai.created_at,
+       (ac.id IS NOT NULL)::bool AS has_android_credentials,
+       EXISTS (SELECT 1 FROM app_store_connect_api_keys k WHERE k.app_id = ai.app_id) AS has_ios_credentials
+FROM app_identifiers ai
+LEFT JOIN android_credentials ac ON ac.app_identifier_id = ai.id
+WHERE ai.app_id = $1
+ORDER BY ai.platform ASC, ai.identifier ASC;
+
+-- name: GetAppIdentifierByID :one
+SELECT id, platform, identifier, build_number
+FROM app_identifiers
+WHERE app_id = $1 AND id = $2;
+
+-- name: GetAppIdentifierByPlatformAndIdentifier :one
+SELECT id, platform, identifier, build_number
+FROM app_identifiers
+WHERE app_id = $1 AND platform = $2 AND identifier = $3;
+
+-- name: SetAppIdentifierBuildNumber :execresult
+UPDATE app_identifiers
+SET build_number = $3
+WHERE app_id = $1 AND id = $2;
+
+-- name: LockAppIdentifierByID :one
+-- Lock before DELETE so a concurrent credential insert settles before the
+-- identifier and its credentials are removed by the cascade.
+SELECT id, platform, identifier, build_number FROM app_identifiers
+WHERE app_id = $1 AND id = $2
+FOR UPDATE;
+
+-- name: ListApiKeysOnlyRestrictedToAppIdentifier :many
+-- Live keys whose Build or Submit rules all name this identifier.
+SELECT k.name
+FROM api_keys k
+WHERE k.app_id = sqlc.arg('app_id')::uuid
+  AND k.revoked_at IS NULL
+  AND (
+    (EXISTS (SELECT 1 FROM api_key_build_rules r WHERE r.api_key_id = k.id AND r.app_identifier_id = sqlc.arg('id')::uuid)
+     AND NOT EXISTS (SELECT 1 FROM api_key_build_rules r WHERE r.api_key_id = k.id AND r.app_identifier_id <> sqlc.arg('id')::uuid))
+    OR
+    (EXISTS (SELECT 1 FROM api_key_submit_rules r WHERE r.api_key_id = k.id AND r.app_identifier_id = sqlc.arg('id')::uuid)
+     AND NOT EXISTS (SELECT 1 FROM api_key_submit_rules r WHERE r.api_key_id = k.id AND r.app_identifier_id <> sqlc.arg('id')::uuid))
+  )
+ORDER BY k.name;
+
+-- name: DeleteAppIdentifierByID :execresult
+-- Credential rows are removed atomically by their ON DELETE CASCADE FK.
+DELETE FROM app_identifiers
+WHERE app_identifiers.app_id = $1 AND app_identifiers.id = $2;
+
+-- name: InsertEnvironment :one
+INSERT INTO environments (id, app_id, name)
+VALUES ($1, $2, $3)
+RETURNING id;
+
+-- name: ListEnvironmentsByAppID :many
+SELECT id, name, created_at, updated_at
+FROM environments
+WHERE app_id = $1
+ORDER BY name ASC;
+
+-- name: GetEnvironmentIDByName :one
+SELECT id
+FROM environments
+WHERE app_id = $1 AND name = $2;
+
+-- name: DeleteEnvironment :execresult
+DELETE FROM environments
+WHERE app_id = $1 AND name = $2;
+
+-- name: UpsertEnvironmentVar :one
+INSERT INTO environment_vars (id, environment_id, key, is_public, sealed_value)
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (environment_id, key) DO UPDATE SET
+    is_public = EXCLUDED.is_public,
+    sealed_value = EXCLUDED.sealed_value,
+    updated_at = CURRENT_TIMESTAMP
+RETURNING id;
+
+-- name: ListEnvironmentVarsByAppID :many
+SELECT ev.environment_id, ev.key, ev.is_public, ev.created_at, ev.updated_at
+FROM environment_vars ev
+JOIN environments e ON e.id = ev.environment_id
+WHERE e.app_id = $1
+ORDER BY e.name ASC, ev.key ASC;
+
+-- name: GetSealedEnvironmentVarValue :one
+SELECT sealed_value
+FROM environment_vars
+WHERE environment_id = $1 AND key = $2;
+
+-- name: DeleteEnvironmentVar :execresult
+DELETE FROM environment_vars
+WHERE environment_id = $1 AND key = $2;
+
+-- name: UpdateChannelEnvironment :execresult
+-- Refuses an environment of another app even when called with a raw id.
+UPDATE channels c
+SET environment_id = sqlc.narg('environment_id')::uuid
+WHERE c.app_id = $1 AND c.name = $2
+  AND (sqlc.narg('environment_id')::uuid IS NULL
+       OR EXISTS (SELECT 1 FROM environments e WHERE e.id = sqlc.narg('environment_id')::uuid AND e.app_id = c.app_id));
+
 -- name: GetServerInstanceID :one
 SELECT id FROM server_instance;
 
@@ -2571,3 +2740,67 @@ WHERE b.app_id = sqlc.arg('app_id')
   AND b.name = sqlc.arg('branch_name')
   AND bp.target_update_id = sqlc.arg('target_update_id')
 ORDER BY s.id DESC;
+
+-- name: GetApiKeyBuildRulesByAppID :many
+SELECT r.api_key_id, r.app_identifier_id, r.actions
+FROM api_key_build_rules r JOIN api_keys k ON k.id = r.api_key_id
+WHERE r.app_id = $1 AND k.revoked_at IS NULL
+ORDER BY r.api_key_id, r.app_identifier_id;
+
+-- name: GetApiKeySubmitRulesByAppID :many
+SELECT r.api_key_id, r.app_identifier_id, r.destination, r.actions
+FROM api_key_submit_rules r
+JOIN api_keys k ON k.id = r.api_key_id AND k.app_id = r.app_id
+JOIN app_identifiers i ON i.id = r.app_identifier_id AND i.app_id = k.app_id
+WHERE r.app_id = $1 AND k.revoked_at IS NULL
+  AND ((i.platform = 'android' AND r.destination IN ('internal', 'alpha', 'beta', 'production'))
+    OR (i.platform = 'ios' AND r.destination = 'testflight'))
+ORDER BY r.api_key_id, r.app_identifier_id, r.destination;
+
+-- name: GetApiKeyEnvironmentRulesByAppID :many
+SELECT r.api_key_id, r.pattern
+FROM api_key_environment_rules r JOIN api_keys k ON k.id = r.api_key_id
+WHERE k.app_id = $1 AND k.revoked_at IS NULL
+ORDER BY r.api_key_id, r.pattern;
+
+-- name: DeleteApiKeyEnvironmentRules :exec
+DELETE FROM api_key_environment_rules WHERE api_key_id = $1;
+
+-- name: InsertApiKeyEnvironmentRule :exec
+INSERT INTO api_key_environment_rules (api_key_id, pattern)
+VALUES ($1, $2);
+
+-- name: DeleteApiKeyBuildRules :exec
+DELETE FROM api_key_build_rules WHERE api_key_id = $1;
+
+-- name: DeleteApiKeySubmitRules :exec
+DELETE FROM api_key_submit_rules WHERE api_key_id = $1;
+
+-- name: InsertApiKeyBuildRule :exec
+INSERT INTO api_key_build_rules (api_key_id, app_id, app_identifier_id, actions)
+VALUES ($1, $2, $3, $4);
+
+-- name: InsertApiKeySubmitRule :exec
+INSERT INTO api_key_submit_rules (api_key_id, app_id, app_identifier_id, destination, actions)
+VALUES ($1, $2, $3, $4, $5);
+
+-- name: ResolveEnvironmentVariables :many
+WITH selected AS (
+    SELECT e.id AS environment_id
+    FROM environments e
+    WHERE e.app_id = sqlc.arg('app_id')::uuid
+      AND sqlc.arg('environment_name')::text <> ''
+      AND e.name = sqlc.arg('environment_name')::text
+    UNION ALL
+    SELECT c.environment_id
+    FROM channels c
+    WHERE c.app_id = sqlc.arg('app_id')::uuid
+      AND sqlc.arg('channel_name')::text <> ''
+      AND c.name = sqlc.arg('channel_name')::text
+)
+SELECT e.id AS environment_id, e.name AS environment_name,
+       ev.key, ev.is_public, ev.sealed_value
+FROM selected s
+LEFT JOIN environments e ON e.id = s.environment_id AND e.app_id = sqlc.arg('app_id')::uuid
+LEFT JOIN environment_vars ev ON ev.environment_id = e.id
+ORDER BY ev.key ASC;
