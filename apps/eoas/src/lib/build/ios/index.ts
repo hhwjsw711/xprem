@@ -126,6 +126,7 @@ function iosBuild(build: IosBuild): NativeBuild {
               title: 'Installing pods',
               command: 'pod',
               args: ['install'],
+              silence: { warnAfterMs: 15 * 60 * 1000, stopAfterMs: 30 * 60 * 1000 },
               cwd: path.join(working, 'ios'),
               env: developerDir
                 ? { ...build.env, SDKROOT: await macosSdkPath(developerDir) }
