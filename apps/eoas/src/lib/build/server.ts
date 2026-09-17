@@ -80,16 +80,24 @@ export class BuildServerError extends Error {
   }
 }
 
-// The detail of the server's problem+json answer, without control characters.
+// The server's explanation: the detail of a problem+json answer, or a plain text body. Control
+// characters are dropped and HTML error pages are ignored.
 async function problemDetail(response: Response): Promise<string | undefined> {
+  const body = await response.text().catch(() => '');
+  let detail: unknown = body;
   try {
-    const { detail } = (await response.json()) as { detail?: unknown };
-    return typeof detail === 'string'
-      ? detail.replace(/[\u0000-\u001f\u007f-\u009f]/gu, ' ').slice(0, 500) || undefined
-      : undefined;
+    detail = (JSON.parse(body) as { detail?: unknown }).detail;
   } catch {
+    // Not JSON: a plain text error.
+  }
+  if (typeof detail !== 'string') {
     return undefined;
   }
+  const sanitized = detail.replace(/[\u0000-\u001f\u007f-\u009f]/gu, ' ').trim();
+  if (sanitized.startsWith('<')) {
+    return undefined;
+  }
+  return sanitized.slice(0, 500) || undefined;
 }
 
 export async function request<T>(

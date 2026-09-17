@@ -17,7 +17,7 @@ func TestBuildRulesKeepIdentifiersAndActionsSeparate(t *testing.T) {
 	const id = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 	repo := &fakeAccessRepo{}
 	err := serviceWith(repo, true).SetAccess(context.Background(), "app", 42, nil, nil,
-		[]BuildRule{{AppIdentifierID: strings.ToUpper(id), Actions: []BuildAction{BuildActionCreate, BuildActionCreate}}}, nil)
+		[]BuildRule{{AppIdentifierID: strings.ToUpper(id), Actions: []BuildAction{BuildActionCreate, BuildActionCreate}}}, nil, nil)
 	require.NoError(t, err)
 	build := repo.setAccess.BuildRules[0]
 	require.Equal(t, []BuildAction{BuildActionCreate}, build.Actions)
@@ -44,7 +44,7 @@ func TestSetAccessRejectsInvalidBuildRulesBeforeWriting(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			repo := &fakeAccessRepo{}
-			err := serviceWith(repo, true).SetAccess(context.Background(), "app", 42, nil, nil, tc.rules, nil)
+			err := serviceWith(repo, true).SetAccess(context.Background(), "app", 42, nil, nil, tc.rules, nil, nil)
 			require.Error(t, err)
 			assert.Zero(t, repo.setCalls)
 		})

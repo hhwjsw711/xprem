@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"xprem/internal/auditlog"
 	"xprem/internal/crypto"
@@ -312,6 +313,39 @@ func TestEnvironmentsUnsupportedInStatelessMode(t *testing.T) {
 	assert.ErrorIs(t, service.SetChannelEnvironment(ctx, "app-1", "prod-channel", nil), store.ErrNotSupportedInStatelessMode)
 }
 
+func TestExportAuthorizesTheResolvedEnvironment(t *testing.T) {
+	setMasterKey(t)
+	ctx := context.Background()
+	repo := newFakeEnvironmentRepo()
+	id := stagingEnvId
+	repo.channelEnvs["release"] = &id
+	repo.channelEnvs["unbound"] = nil
+	env := NewEnvironmentService(repo)
+	require.NoError(t, env.SetEnvVar(ctx, "app-1", "staging", "URL", "https://example.test", true))
+
+	var judged []string
+	denied := errors.New("denied")
+	authorize := func(verdict error) func(string) error {
+		return func(environment string) error {
+			judged = append(judged, environment)
+			return verdict
+		}
+	}
+
+	got, err := env.ExportVariables(ctx, "app-1", "release", "", authorize(nil))
+	require.NoError(t, err)
+	assert.Len(t, got.Variables, 1)
+	_, err = env.ExportVariables(ctx, "app-1", "release", "", authorize(denied))
+	require.ErrorIs(t, err, denied)
+	_, err = env.ExportVariables(ctx, "app-1", "", "staging", authorize(denied))
+	require.ErrorIs(t, err, denied)
+	assert.Equal(t, []string{"staging", "staging", "staging"}, judged, "a channel is judged by the environment it resolves to")
+
+	_, err = env.ExportVariables(ctx, "app-1", "unbound", "", authorize(denied))
+	require.NoError(t, err, "a channel without an environment exports nothing to authorize")
+	assert.Len(t, judged, 3)
+}
+
 func TestBuildEnvironmentSelection(t *testing.T) {
 	setMasterKey(t)
 	ctx := context.Background()
@@ -335,7 +369,7 @@ func TestBuildEnvironmentSelection(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			before := repo.exportCalls
-			got, err := env.ExportVariables(ctx, "app-1", tc.channel, tc.environment)
+			got, err := env.ExportVariables(ctx, "app-1", tc.channel, tc.environment, nil)
 			expectedCalls := 1
 			if tc.name == "none" || tc.name == "both" {
 				expectedCalls = 0
@@ -373,7 +407,7 @@ func TestBuildEnvironmentAuditAndDecryptionFailure(t *testing.T) {
 	require.NoError(t, env.SetEnvVar(ctx, "app-1", "staging", "TOKEN", "secret sentinel", false))
 	var events []auditlog.Event
 	env.SetOnAuditEvent(func(_ context.Context, event auditlog.Event) { events = append(events, event) })
-	got, err := env.ExportVariables(ctx, "app-1", "", "staging")
+	got, err := env.ExportVariables(ctx, "app-1", "", "staging", nil)
 	require.NoError(t, err)
 	require.Equal(t, "secret sentinel", got.Variables["TOKEN"])
 	require.Len(t, events, 1)
@@ -382,7 +416,7 @@ func TestBuildEnvironmentAuditAndDecryptionFailure(t *testing.T) {
 	require.NoError(t, err)
 	require.NotContains(t, string(encoded), "secret sentinel")
 	repo.byScopeKey[envScopeKey{stagingEnvId, "TOKEN"}] = fakeSealedEnvVar{sealedValue: "corrupt"}
-	got, err = env.ExportVariables(ctx, "app-1", "", "staging")
+	got, err = env.ExportVariables(ctx, "app-1", "", "staging", nil)
 	require.Error(t, err)
 	require.Nil(t, got)
 	require.Len(t, events, 1)
@@ -427,7 +461,7 @@ func TestExportVariablesEmptyEnvironmentAndTargetedReads(t *testing.T) {
 	setMasterKey(t)
 	repo := newFakeEnvironmentRepo()
 	service := NewEnvironmentService(repo)
-	got, err := service.ExportVariables(context.Background(), "app-1", "", "staging")
+	got, err := service.ExportVariables(context.Background(), "app-1", "", "staging", nil)
 	require.NoError(t, err)
 	require.Equal(t, "staging", *got.Environment)
 	require.Empty(t, got.Variables)
@@ -453,7 +487,7 @@ func TestExportVariablesRejectsForeignCiphertext(t *testing.T) {
 			service := NewEnvironmentService(repo)
 			events := 0
 			service.SetOnAuditEvent(func(context.Context, auditlog.Event) { events++ })
-			got, err := service.ExportVariables(context.Background(), "app-1", "", "staging")
+			got, err := service.ExportVariables(context.Background(), "app-1", "", "staging", nil)
 			require.Error(t, err)
 			require.Nil(t, got)
 			require.Zero(t, events)

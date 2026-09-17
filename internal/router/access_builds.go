@@ -17,7 +17,24 @@ import (
 
 type buildAccessPolicy interface {
 	AuthorizeBuild(context.Context, apikeyrestrictions.BuildRequest) error
+	AuthorizeEnvironment(context.Context, apikeyrestrictions.EnvironmentRequest) error
 }
+
+// environmentAuthorizer judges the environment a build request resolved to with the key its guard
+// authenticated. A channel only names its environment once resolved, so this runs inside the export.
+func environmentAuthorizer(policy buildAccessPolicy) func(r *http.Request, environment string) error {
+	return func(r *http.Request, environment string) error {
+		credential := services.CliAuthFromContext(r.Context())
+		if credential == nil {
+			return services.ErrUnauthorized
+		}
+		return policy.AuthorizeEnvironment(r.Context(), apikeyrestrictions.EnvironmentRequest{
+			APIKeyContext: apikeyrestrictions.APIKeyContext{AppID: credential.AppID, APIKeyID: credential.KeyID, ClientIP: helpers.ClientIP(r)},
+			Environment:   environment,
+		})
+	}
+}
+
 type buildGroup struct {
 	router       *mux.Router
 	cliAuth      *services.CliAuthService

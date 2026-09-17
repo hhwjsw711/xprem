@@ -483,6 +483,15 @@ func (q *Queries) DeleteApiKeyBuildRules(ctx context.Context, apiKeyID int64) er
 	return err
 }
 
+const deleteApiKeyEnvironmentRules = `-- name: DeleteApiKeyEnvironmentRules :exec
+DELETE FROM api_key_environment_rules WHERE api_key_id = $1
+`
+
+func (q *Queries) DeleteApiKeyEnvironmentRules(ctx context.Context, apiKeyID int64) error {
+	_, err := q.db.Exec(ctx, deleteApiKeyEnvironmentRules, apiKeyID)
+	return err
+}
+
 const deleteApiKeySubmitRules = `-- name: DeleteApiKeySubmitRules :exec
 DELETE FROM api_key_submit_rules WHERE api_key_id = $1
 `
@@ -982,6 +991,10 @@ WITH active_key AS (
     JOIN app_identifiers i ON i.id = r.app_identifier_id AND i.app_id = k.app_id
     WHERE (i.platform = 'android' AND r.destination IN ('internal', 'alpha', 'beta', 'production'))
        OR (i.platform = 'ios' AND r.destination = 'testflight')
+    UNION ALL
+    SELECT 'environments'::TEXT, r.pattern, NULL::UUID, ''::TEXT, ARRAY[]::TEXT[]
+    FROM api_key_environment_rules r
+    JOIN active_key k ON k.id = r.api_key_id
 )
 SELECT k.allowed_ips, COALESCE(r.domain, '')::TEXT AS domain,
        COALESCE(r.pattern, '')::TEXT AS pattern, r.app_identifier_id,
@@ -1105,6 +1118,33 @@ func (q *Queries) GetApiKeyBuildRulesByAppID(ctx context.Context, appID pgtype.U
 	for rows.Next() {
 		var i GetApiKeyBuildRulesByAppIDRow
 		if err := rows.Scan(&i.ApiKeyID, &i.AppIdentifierID, &i.Actions); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getApiKeyEnvironmentRulesByAppID = `-- name: GetApiKeyEnvironmentRulesByAppID :many
+SELECT r.api_key_id, r.pattern
+FROM api_key_environment_rules r JOIN api_keys k ON k.id = r.api_key_id
+WHERE k.app_id = $1 AND k.revoked_at IS NULL
+ORDER BY r.api_key_id, r.pattern
+`
+
+func (q *Queries) GetApiKeyEnvironmentRulesByAppID(ctx context.Context, appID pgtype.UUID) ([]ApiKeyEnvironmentRule, error) {
+	rows, err := q.db.Query(ctx, getApiKeyEnvironmentRulesByAppID, appID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ApiKeyEnvironmentRule
+	for rows.Next() {
+		var i ApiKeyEnvironmentRule
+		if err := rows.Scan(&i.ApiKeyID, &i.Pattern); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -3448,6 +3488,21 @@ func (q *Queries) InsertApiKeyBuildRule(ctx context.Context, arg InsertApiKeyBui
 		arg.AppIdentifierID,
 		arg.Actions,
 	)
+	return err
+}
+
+const insertApiKeyEnvironmentRule = `-- name: InsertApiKeyEnvironmentRule :exec
+INSERT INTO api_key_environment_rules (api_key_id, pattern)
+VALUES ($1, $2)
+`
+
+type InsertApiKeyEnvironmentRuleParams struct {
+	ApiKeyID int64  `json:"api_key_id"`
+	Pattern  string `json:"pattern"`
+}
+
+func (q *Queries) InsertApiKeyEnvironmentRule(ctx context.Context, arg InsertApiKeyEnvironmentRuleParams) error {
+	_, err := q.db.Exec(ctx, insertApiKeyEnvironmentRule, arg.ApiKeyID, arg.Pattern)
 	return err
 }
 

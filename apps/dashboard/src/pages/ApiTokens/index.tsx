@@ -53,7 +53,7 @@ export const ApiTokens = () => {
     enabled: CONTROL_PLANE_ENABLED,
   });
 
-  const renderAccess = (apiKeyId: string, domain: 'updates' | 'build' | 'submit' | 'allowedIps') => {
+  const renderAccess = (apiKeyId: string, domain: 'updates' | 'build' | 'submit' | 'environments' | 'allowedIps') => {
     if (!licenseQuery.data) {
       return <span className="text-xs text-muted-foreground">{licenseQuery.isError ? 'Access unavailable' : 'Loading access…'}</span>;
     }
@@ -65,7 +65,7 @@ export const ApiTokens = () => {
       return <span className="text-xs text-muted-foreground">{apiKeyAccessQuery.isError ? 'Access unavailable' : 'Loading access…'}</span>;
     }
     const count = domain === 'allowedIps' ? access.allowedIps.length : access[domain].rules.length;
-    const unit = { updates: 'branch rule', build: 'identifier', submit: 'destination', allowedIps: 'IP rule' }[domain];
+    const unit = { updates: 'branch rule', build: 'identifier', submit: 'destination', environments: 'environment rule', allowedIps: 'IP rule' }[domain];
     const empty = domain === 'updates' ? 'No access' : domain === 'allowedIps' ? 'Any IP' : 'Full access';
     return (
       <span className={`inline-flex h-6 items-center whitespace-nowrap rounded-md px-2 text-xs font-medium ${
@@ -188,7 +188,7 @@ export const ApiTokens = () => {
             <p className="mt-0.5 text-xs text-muted-foreground">
               Copy it now, it will not be shown again.
               {licenseQuery.data?.valid &&
-                ' New tokens have full Build and Submit access for this app, and no Updates access. Use the Edit access action to configure permissions.'}
+                ' New tokens have full Build, Submit and Environment access for this app, and no Updates access. Use the Edit access action to configure permissions.'}
             </p>
             <div className="mt-3 flex items-center gap-2">
               <code className="flex-1 select-all break-all rounded-lg border bg-background p-2.5 font-mono text-xs">
@@ -246,6 +246,13 @@ export const ApiTokens = () => {
               id: domain,
               cell: ({ row }: { row: { original: ApiKeyRecord } }) => renderAccess(row.original.id, domain),
             })),
+            ...(licenseQuery.data?.valid && apiKeyAccessQuery.data?.some(access => access.environments.rules.length > 0)
+              ? [{
+                  header: 'Environments',
+                  id: 'environments',
+                  cell: ({ row }: { row: { original: ApiKeyRecord } }) => renderAccess(row.original.id, 'environments'),
+                }]
+              : []),
             ...(licenseQuery.data?.valid && apiKeyAccessQuery.data?.some(access => access.allowedIps.length > 0)
               ? [{
                   header: 'IP allowlist',

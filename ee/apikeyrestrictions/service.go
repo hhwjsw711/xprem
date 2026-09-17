@@ -18,13 +18,14 @@ import (
 )
 
 // ApiKeyAccess contains per-domain permissions and permitted source networks.
-// Empty Build and Submit rule lists are unrestricted; Updates requires a grant.
+// Empty Build, Submit and Environment rule lists are unrestricted; Updates requires a grant.
 type ApiKeyAccess struct {
-	ApiKeyID    int64
-	AllowedIps  []netip.Prefix
-	UpdateRules []UpdateRule
-	BuildRules  []BuildRule
-	SubmitRules []SubmitRule
+	ApiKeyID         int64
+	AllowedIps       []netip.Prefix
+	UpdateRules      []UpdateRule
+	BuildRules       []BuildRule
+	SubmitRules      []SubmitRule
+	EnvironmentRules []EnvironmentRule
 }
 
 // ApiKeyAccessRepository persists per-key access. GetAccess returns a consistent
@@ -82,7 +83,7 @@ func (s *ApiKeyAccessService) GetAccessByApp(ctx context.Context, appID string) 
 // SetAccess replaces what one API key is allowed to do. CIDR entries are
 // normalized to satisfy the postgres cidr column, and rules are validated and
 // reordered by NormalizeUpdateRules.
-func (s *ApiKeyAccessService) SetAccess(ctx context.Context, appID string, apiKeyID int64, updateRules []UpdateRule, cidrs []string, buildRules []BuildRule, submitRules []SubmitRule) error {
+func (s *ApiKeyAccessService) SetAccess(ctx context.Context, appID string, apiKeyID int64, updateRules []UpdateRule, cidrs []string, buildRules []BuildRule, submitRules []SubmitRule, environmentRules []EnvironmentRule) error {
 	if s.repo == nil {
 		return ErrRequiresControlPlane
 	}
@@ -105,12 +106,17 @@ func (s *ApiKeyAccessService) SetAccess(ctx context.Context, appID string, apiKe
 	if err != nil {
 		return err
 	}
+	normalizedEnvironments, err := NormalizeEnvironmentRules(environmentRules)
+	if err != nil {
+		return err
+	}
 	access := ApiKeyAccess{
-		ApiKeyID:    apiKeyID,
-		AllowedIps:  allowedIps,
-		UpdateRules: normalizedRules,
-		BuildRules:  normalizedBuild,
-		SubmitRules: normalizedSubmit,
+		ApiKeyID:         apiKeyID,
+		AllowedIps:       allowedIps,
+		UpdateRules:      normalizedRules,
+		BuildRules:       normalizedBuild,
+		SubmitRules:      normalizedSubmit,
+		EnvironmentRules: normalizedEnvironments,
 	}
 	if err := s.repo.SetAccess(ctx, appID, access); err != nil {
 		return err
@@ -132,10 +138,11 @@ func (s *ApiKeyAccessService) SetAccess(ctx context.Context, appID string, apiKe
 	s.recordAccessEvent(ctx, auditlog.ActionAPIKeyRestrictionsUpdated,
 		"api_key", strconv.FormatInt(apiKeyID, 10), targetDisplay, appID,
 		map[string]any{
-			"update_rules":  describeUpdateRules(normalizedRules),
-			"build_rules":   describeBuildRules(normalizedBuild),
-			"submit_rules":  describeSubmitRules(normalizedSubmit),
-			"allowed_cidrs": normalizedCidrs,
+			"update_rules":      describeUpdateRules(normalizedRules),
+			"build_rules":       describeBuildRules(normalizedBuild),
+			"submit_rules":      describeSubmitRules(normalizedSubmit),
+			"environment_rules": describeEnvironmentRules(normalizedEnvironments),
+			"allowed_cidrs":     normalizedCidrs,
 		})
 	return nil
 }

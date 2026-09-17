@@ -332,9 +332,9 @@ type EnvironmentValues struct {
 	Variables   map[string]string `json:"variables"`
 }
 
-// ExportVariables resolves an app environment and returns its decrypted values.
-// There is no implicit default; callers authorize access before exporting.
-func (s *EnvironmentService) ExportVariables(ctx context.Context, appID, channel, environment string) (*EnvironmentValues, error) {
+// ExportVariables resolves an app environment and returns its decrypted values. There is no
+// implicit default; authorize judges the resolved environment before any value is decrypted.
+func (s *EnvironmentService) ExportVariables(ctx context.Context, appID, channel, environment string, authorize func(environment string) error) (*EnvironmentValues, error) {
 	if channel != "" && environment != "" {
 		return nil, validation.Errorf("environment", "channel and environment are mutually exclusive")
 	}
@@ -359,6 +359,11 @@ func (s *EnvironmentService) ExportVariables(ctx context.Context, appID, channel
 	output.Environment = resolved.Name
 	if resolved.Name == nil {
 		return output, nil
+	}
+	if authorize != nil {
+		if err := authorize(*resolved.Name); err != nil {
+			return nil, err
+		}
 	}
 	for _, variable := range resolved.Variables {
 		if err := validateEnvKey(variable.Key); err != nil {

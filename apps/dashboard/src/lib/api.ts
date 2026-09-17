@@ -917,8 +917,13 @@ export type ApiKeyAccessRecord = {
   updates: { rules: UpdateRuleRecord[] };
   build: { rules: BuildRuleRecord[] };
   submit: { rules: SubmitRuleRecord[] };
+  environments: { rules: EnvironmentRuleRecord[] };
   allowedIps: string[];
 };
+
+// An environment name or a "*" pattern whose variables the token may read. No rule means every
+// environment.
+export type EnvironmentRuleRecord = { pattern: string };
 
 export type BuildAction = 'create';
 export type BuildRuleRecord = { appIdentifierId: string; actions: BuildAction[] };
