@@ -71,6 +71,8 @@ type IosCredentialsService struct {
 	onAuditEvent           auditlog.RecordFunc
 	appStoreConnectBaseURL string
 	deviceResponseVerifier *ios.DeviceResponseVerifier
+	// lockCertificateCreation makes one build at a time create a certificate; nil runs unlocked.
+	lockCertificateCreation func(ctx context.Context) (release func(), err error)
 }
 
 // NewIosCredentialsService builds the service; nil repos (stateless mode) make
@@ -81,6 +83,11 @@ func NewIosCredentialsService(repo IosCredentialsRepository, identifiers AppIden
 		identifiers:            identifiers,
 		appStoreConnectBaseURL: appstoreconnect.DefaultBaseURL,
 	}
+}
+
+// SetCertificateCreationLock plugs the lock shared by every replica of the server.
+func (s *IosCredentialsService) SetCertificateCreationLock(lock func(ctx context.Context) (release func(), err error)) {
+	s.lockCertificateCreation = lock
 }
 
 // SetOnAuditEvent plugs the audit emission seam. Nil-safe.

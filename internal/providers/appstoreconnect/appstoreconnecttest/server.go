@@ -45,6 +45,8 @@ type Server struct {
 	ConflictThenAppear bool
 	// CertificateLimitReached makes certificate creation answer 409.
 	CertificateLimitReached bool
+	// AfterCertificateCreated runs once Apple holds a new certificate, before the answer is sent.
+	AfterCertificateCreated func()
 	Devices                 []Device
 	BundleIDs               []BundleID
 	Profiles                []Profile
@@ -290,6 +292,9 @@ func (s *Server) createCertificate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := s.addCertificate(der)
+	if s.AfterCertificateCreated != nil {
+		s.AfterCertificateCreated()
+	}
 	writeJSON(w, http.StatusCreated, map[string]any{"data": map[string]any{"type": "certificates", "id": id, "attributes": map[string]any{"certificateContent": der}}})
 }
 

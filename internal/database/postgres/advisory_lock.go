@@ -21,6 +21,7 @@ const (
 	HealthOutboxLockID          int64 = 745103622 // health outbox drainer
 	HealthSnapshotLockID        int64 = 745103623 // health fleet snapshots
 	HealthSegmentSnapshotLockID int64 = 745103624 // health segment snapshot capture
+	IosCertificateLockID        int64 = 823672946 // automatic creation of an iOS distribution certificate
 )
 
 // advisoryLockWaitTimeout caps waiting for a blocking advisory lock: long
@@ -50,6 +51,18 @@ func AcquireAdvisoryLock(ctx context.Context, connConfig *pgx.ConnConfig, lockID
 		_, _ = conn.Exec(context.Background(), "SELECT pg_advisory_unlock($1)", lockID)
 		_ = conn.Close(context.Background())
 	}, nil
+}
+
+// AdvisoryLocker returns a function that waits for the lock on a connection of its own. Anything
+// that is not a pool has no session to lock, as in TryAdvisoryLock, and runs unlocked.
+func AdvisoryLocker(db any, lockID int64, name string) func(ctx context.Context) (release func(), err error) {
+	return func(ctx context.Context) (func(), error) {
+		pool, isPool := db.(*pgxpool.Pool)
+		if !isPool {
+			return func() {}, nil
+		}
+		return AcquireAdvisoryLock(ctx, pool.Config().ConnConfig, lockID, name)
+	}
 }
 
 // TryAdvisoryLock claims a session advisory lock, or reports that another
