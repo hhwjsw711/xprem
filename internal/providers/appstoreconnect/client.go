@@ -232,11 +232,11 @@ func (c *Client) RevokeCertificate(ctx context.Context, id string) error {
 // FindBundleID returns the team's bundle id with this identifier, or nil when it is not registered.
 func (c *Client) FindBundleID(ctx context.Context, identifier string) (*BundleID, error) {
 	query := url.Values{"filter[identifier]": {identifier}, "limit": {"200"}}
-	var list listDocument[bundleIDAttributes]
-	if err := c.do(ctx, http.MethodGet, "/bundleIds?"+query.Encode(), nil, &list); err != nil {
+	bundleIDs, err := listResources[bundleIDAttributes](ctx, c, "/bundleIds?"+query.Encode())
+	if err != nil {
 		return nil, err
 	}
-	for _, bundleID := range list.Data {
+	for _, bundleID := range bundleIDs {
 		if bundleID.Attributes.Identifier == identifier {
 			return &BundleID{ID: bundleID.ID, Identifier: identifier}, nil
 		}
@@ -260,11 +260,11 @@ func (c *Client) CreateBundleID(ctx context.Context, identifier string, name str
 // FindProfile returns the team's provisioning profile with this name, or nil when there is none.
 func (c *Client) FindProfile(ctx context.Context, name string) (*Profile, error) {
 	query := url.Values{"filter[name]": {name}, "limit": {"200"}}
-	var list listDocument[profileAttributes]
-	if err := c.do(ctx, http.MethodGet, "/profiles?"+query.Encode(), nil, &list); err != nil {
+	profiles, err := listResources[profileAttributes](ctx, c, "/profiles?"+query.Encode())
+	if err != nil {
 		return nil, err
 	}
-	for _, profile := range list.Data {
+	for _, profile := range profiles {
 		if profile.Attributes.Name == name {
 			found := profile.Attributes.profile(profile.ID)
 			return &found, nil

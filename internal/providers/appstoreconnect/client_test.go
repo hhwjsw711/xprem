@@ -313,3 +313,26 @@ func TestProfileLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, found)
 }
+
+// Apple's identifier filter matches substrings, so the exact bundle id can sit on a later page.
+func TestFindBundleIDFollowsPages(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		page := map[string]any{"data": []map[string]any{{"id": "WIDGET", "attributes": map[string]string{"identifier": "com.example.app.widget"}}}}
+		if r.URL.Query().Get("cursor") == "" {
+			query := r.URL.Query()
+			query.Set("cursor", "page-2")
+			page["links"] = map[string]string{"next": "http://" + r.Host + r.URL.Path + "?" + query.Encode()}
+		} else {
+			page["data"] = []map[string]any{{"id": "APP", "attributes": map[string]string{"identifier": "com.example.app"}}}
+		}
+		assert.NoError(t, json.NewEncoder(w).Encode(page))
+	}))
+	defer server.Close()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+
+	found, err := NewClient(server.URL+"/v1", "key", "issuer", key).FindBundleID(context.Background(), "com.example.app")
+	require.NoError(t, err)
+	require.NotNil(t, found)
+	assert.Equal(t, "APP", found.ID)
+}

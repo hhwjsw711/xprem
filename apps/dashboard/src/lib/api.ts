@@ -349,7 +349,7 @@ export type BuildRecord = {
   id: string;
   appId: string;
   appIdentifierId: string;
-  platform: 'android';
+  platform: 'android' | 'ios';
   applicationId: string;
   status: BuildStatus;
   artifactType: BuildArtifactType;

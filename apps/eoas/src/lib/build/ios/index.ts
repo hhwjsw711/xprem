@@ -151,7 +151,9 @@ function iosBuild(build: IosBuild): NativeBuild {
             }
             const rawOutput = buildLog.path.replace(/\.log$/, '.xcodebuild.log');
             phaseLog.info(`Complete Xcode output: ${rawOutput}`);
-            const summarize = xcodeOutputSummary(rawOutput);
+            const { summarize, close } = xcodeOutputSummary(rawOutput, message => {
+              phaseLog.warn(message);
+            });
             const xcodebuild = (title: string, args: string[]): Promise<void> =>
               runBuildCommand(
                 {
@@ -165,30 +167,34 @@ function iosBuild(build: IosBuild): NativeBuild {
                 phaseLog,
                 secrets
               );
-            await xcodebuild('Archiving the app', [
-              '-workspace',
-              workspaceFile,
-              '-scheme',
-              scheme,
-              '-configuration',
-              configuration,
-              '-destination',
-              'generic/platform=iOS',
-              '-archivePath',
-              archive,
-              '-derivedDataPath',
-              path.join(temporary, 'DerivedData'),
-              'archive',
-            ]);
-            await xcodebuild('Exporting the signed IPA', [
-              '-exportArchive',
-              '-archivePath',
-              archive,
-              '-exportPath',
-              path.join(temporary, 'export'),
-              '-exportOptionsPlist',
-              exportOptions,
-            ]);
+            try {
+              await xcodebuild('Archiving the app', [
+                '-workspace',
+                workspaceFile,
+                '-scheme',
+                scheme,
+                '-configuration',
+                configuration,
+                '-destination',
+                'generic/platform=iOS',
+                '-archivePath',
+                archive,
+                '-derivedDataPath',
+                path.join(temporary, 'DerivedData'),
+                'archive',
+              ]);
+              await xcodebuild('Exporting the signed IPA', [
+                '-exportArchive',
+                '-archivePath',
+                archive,
+                '-exportPath',
+                path.join(temporary, 'export'),
+                '-exportOptionsPlist',
+                exportOptions,
+              ]);
+            } finally {
+              await close();
+            }
           },
           'Building signed IPA'
         );
@@ -208,20 +214,39 @@ function iosBuild(build: IosBuild): NativeBuild {
 
 // Xcode prints megabytes per build: the complete output goes to a file beside the build log, which
 // only receives one line per target, the errors and the result banner.
-function xcodeOutputSummary(rawPath: string): (line: string) => string | undefined {
-  const raw = fs.createWriteStream(rawPath, { flags: 'a', mode: 0o600 });
+function xcodeOutputSummary(
+  rawPath: string,
+  warn: (message: string) => void
+): { summarize: (line: string) => string | undefined; close: () => Promise<void> } {
+  let raw: fs.WriteStream | undefined = fs.createWriteStream(rawPath, { flags: 'a', mode: 0o600 });
+  raw.on('error', () => {
+    raw = undefined;
+    warn(`Could not write the complete Xcode output to ${rawPath}; the build continues.`);
+  });
   const targets = new Set<string>();
-  return line => {
-    raw.write(`${line}\n`);
-    if (/(^|\s)(fatal )?error: |^\*\* [A-Z ]+ \*\*$|^ld: |^\[[\w-]+\] /.test(line)) {
-      return line;
-    }
-    const target = /\(in target '([^']+)' from project '[^']+'\)$/.exec(line)?.[1];
-    if (target && !targets.has(target)) {
-      targets.add(target);
-      return `› Building ${target}`;
-    }
-    return undefined;
+  return {
+    summarize: line => {
+      raw?.write(`${line}\n`);
+      if (/(^|\s)(fatal )?error: |^\*\* [A-Z ]+ \*\*$|^ld: |^\[[\w-]+\] /.test(line)) {
+        return line;
+      }
+      const target = /\(in target '([^']+)' from project '[^']+'\)$/.exec(line)?.[1];
+      if (target && !targets.has(target)) {
+        targets.add(target);
+        return `› Building ${target}`;
+      }
+      return undefined;
+    },
+    close: () =>
+      new Promise(resolve => {
+        if (raw) {
+          raw.end(() => {
+            resolve();
+          });
+        } else {
+          resolve();
+        }
+      }),
   };
 }
 
