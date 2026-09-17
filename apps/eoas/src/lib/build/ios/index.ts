@@ -113,15 +113,21 @@ function iosBuild(build: IosBuild): NativeBuild {
       const { working, temporary, buildLog, secrets } = workspace;
       let signing: InstalledSigning | undefined;
       try {
-        const { scheme, installed } = await buildLog.runBuildPhase(
+        const { scheme, installed, configured } = await buildLog.runBuildPhase(
           BuildPhase.CONFIGURE_XCODE_PROJECT,
           async () => {
             await assertSceneLifecycle(working, build.xcodeMajor);
             const scheme = appScheme(working, build.ios.scheme);
             await assertDeviceDestination(working, scheme, build.env);
             signing = await installSigning(build.credentials, temporary);
-            await configureXcodeProject(build, workspace, signing, configuration, scheme);
-            return { scheme, installed: signing };
+            const configured = await configureXcodeProject(
+              build,
+              workspace,
+              signing,
+              configuration,
+              scheme
+            );
+            return { scheme, installed: signing, configured };
           }
         );
         await buildLog.runBuildPhase(BuildPhase.INSTALL_PODS, async phaseLog => {
@@ -147,7 +153,14 @@ function iosBuild(build: IosBuild): NativeBuild {
           async phaseLog => {
             const archive = path.join(temporary, 'app.xcarchive');
             const exportOptions = path.join(temporary, 'exportOptions.plist');
-            await fs.writeFile(exportOptions, exportOptionsPlist(build, installed.profileUuid));
+            await fs.writeFile(
+              exportOptions,
+              exportOptionsPlist(
+                build,
+                installed.profileUuid,
+                configured.iCloudContainerEnvironment
+              )
+            );
             const [workspaceFile] = await fg('ios/*.xcworkspace', {
               cwd: working,
               absolute: true,
@@ -315,20 +328,28 @@ async function configureXcodeProject(
   signing: InstalledSigning,
   configuration: string,
   scheme: string
-): Promise<void> {
-  const { targetName, infoPlist } = await configureAppTarget(
+): Promise<ConfiguredTarget> {
+  const configured = await configureAppTarget(
     working,
     scheme,
     configuration,
     build.ios.bundleIdentifier
   );
-  await setPlistString(infoPlist, 'CFBundleVersion', String(buildNumber));
+  await setPlistString(configured.infoPlist, 'CFBundleVersion', String(buildNumber));
   IOSConfig.ProvisioningProfile.setProvisioningProfileForPbxproj(working, {
-    targetName,
+    targetName: configured.targetName,
     profileName: signing.profileName,
     appleTeamId: signing.teamId,
     buildConfiguration: configuration,
   });
+  return configured;
+}
+
+interface ConfiguredTarget {
+  targetName: string;
+  infoPlist: string;
+  // Xcode refuses to export an iCloud app whose export options do not repeat this entitlement.
+  iCloudContainerEnvironment?: string;
 }
 
 // Sets the bundle identifier on the app target the scheme builds and returns its Info.plist.
@@ -337,7 +358,7 @@ export async function configureAppTarget(
   scheme: string,
   configuration: string,
   bundleIdentifier: string
-): Promise<{ targetName: string; infoPlist: string }> {
+): Promise<ConfiguredTarget> {
   const application = await IOSConfig.Target.findApplicationTargetWithDependenciesAsync(
     working,
     scheme
@@ -370,11 +391,15 @@ export async function configureAppTarget(
   }
   // eslint-disable-next-line node/no-sync
   await fs.writeFile(project.filepath, project.writeSync());
+  const entitlements = targetFile(working, selected[1].buildSettings.CODE_SIGN_ENTITLEMENTS);
   return {
     targetName: application.name,
     infoPlist:
-      targetInfoPlist(working, selected[1].buildSettings.INFOPLIST_FILE) ??
+      targetFile(working, selected[1].buildSettings.INFOPLIST_FILE) ??
       IOSConfig.Paths.getInfoPlistPath(working),
+    iCloudContainerEnvironment: entitlements
+      ? await iCloudContainerEnvironment(entitlements)
+      : undefined,
   };
 }
 
@@ -389,14 +414,29 @@ function unquoted(value: string): string {
   return value.replace(/^"|"$/g, '');
 }
 
-// The file INFOPLIST_FILE names, or undefined when it depends on a setting that is not a directory of the project.
-export function targetInfoPlist(working: string, setting?: string): string | undefined {
+// The file a build setting names, or undefined when it depends on a setting that is not a directory of the project.
+export function targetFile(working: string, setting?: string): string | undefined {
   if (!setting) {
     return undefined;
   }
   const ios = path.join(working, 'ios');
   const resolved = unquoted(setting).replace(/\$[({](SRCROOT|PROJECT_DIR)[)}]/g, ios);
   return resolved.includes('$') ? undefined : path.resolve(ios, resolved);
+}
+
+// Development or Production, the two values Xcode accepts; a build variable is left to Xcode.
+async function iCloudContainerEnvironment(entitlements: string): Promise<string | undefined> {
+  const value = await plistString(entitlements, 'com.apple.developer.icloud-container-environment');
+  return value === 'Development' || value === 'Production' ? value : undefined;
+}
+
+async function plistString(file: string, key: string): Promise<string | undefined> {
+  const { stdout } = await spawnAsync('/usr/libexec/PlistBuddy', [
+    '-c',
+    `Print :${key}`,
+    file,
+  ]).catch(() => ({ stdout: '' }));
+  return stdout.trim() || undefined;
 }
 
 async function setPlistString(file: string, key: string, value: string): Promise<void> {
@@ -410,7 +450,11 @@ async function setPlistString(file: string, key: string, value: string): Promise
 }
 
 // Xcode 15.3 renamed the export methods, so 16 is the first major sure to know the new names.
-function exportOptionsPlist(build: IosBuild, profileUuid: string): string {
+export function exportOptionsPlist(
+  build: Pick<IosBuild, 'xcodeMajor' | 'ios' | 'credentials'>,
+  profileUuid: string,
+  iCloudContainerEnvironment?: string
+): string {
   const renamed = build.xcodeMajor >= 16;
   const method =
     build.ios.distribution === 'app-store'
@@ -434,7 +478,13 @@ function exportOptionsPlist(build: IosBuild, profileUuid: string): string {
   <dict>
     <key>${build.ios.bundleIdentifier}</key>
     <string>${profileUuid}</string>
-  </dict>
+  </dict>${
+    iCloudContainerEnvironment
+      ? `
+  <key>iCloudContainerEnvironment</key>
+  <string>${iCloudContainerEnvironment}</string>`
+      : ''
+  }
 </dict>
 </plist>
 `;
