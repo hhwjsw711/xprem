@@ -12,6 +12,7 @@ CREATE TABLE api_key_environment_rules (
 -- +goose StatementBegin
 DO $$
 BEGIN
+    LOCK TABLE api_key_environment_rules IN ACCESS EXCLUSIVE MODE;
     IF EXISTS (SELECT 1 FROM api_key_environment_rules r JOIN api_keys k ON k.id = r.api_key_id WHERE k.revoked_at IS NULL) THEN
         RAISE EXCEPTION 'Cannot downgrade while live tokens have Environment rules; remove those rules first';
     END IF;

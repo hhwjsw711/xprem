@@ -90,15 +90,14 @@ async function problemDetail(response: Response): Promise<string | undefined> {
   } catch {
     // Not JSON: a plain text error.
   }
-  if (typeof detail !== 'string' || detail.trimStart().startsWith('<')) {
+  if (typeof detail !== 'string') {
     return undefined;
   }
-  return (
-    detail
-      .replace(/[\u0000-\u001f\u007f-\u009f]/gu, ' ')
-      .trim()
-      .slice(0, 500) || undefined
-  );
+  const sanitized = detail.replace(/[\u0000-\u001f\u007f-\u009f]/gu, ' ').trim();
+  if (sanitized.startsWith('<')) {
+    return undefined;
+  }
+  return sanitized.slice(0, 500) || undefined;
 }
 
 export async function request<T>(
