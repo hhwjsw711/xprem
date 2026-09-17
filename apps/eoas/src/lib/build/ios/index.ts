@@ -310,41 +310,87 @@ async function configureXcodeProject(
   configuration: string,
   scheme: string
 ): Promise<void> {
-  const project = IOSConfig.XcodeUtils.getPbxproj(working);
-  if (IOSConfig.Target.findSignableTargets(project).length > 1) {
-    throw new Error(
-      'This project has app extensions. Each one needs its own provisioning profile, which is not supported yet.'
-    );
-  }
-  IOSConfig.BundleIdentifier.setBundleIdentifierForPbxproj(
+  const { targetName, infoPlist } = await configureAppTarget(
     working,
-    build.ios.bundleIdentifier,
-    false
+    scheme,
+    configuration,
+    build.ios.bundleIdentifier
   );
-  const infoPlist = IOSConfig.Paths.getInfoPlistPath(working);
   await setPlistString(infoPlist, 'CFBundleVersion', String(buildNumber));
-  const targetName = await IOSConfig.BuildScheme.getApplicationTargetNameForSchemeAsync(
-    working,
-    scheme
-  );
-  const [, target] = IOSConfig.Target.findNativeTargetByName(project, targetName);
-  const configurations = IOSConfig.XcodeUtils.getBuildConfigurationsForListId(
-    project,
-    target.buildConfigurationList
-  ).map(([, item]) => item.name.replace(/^"|"$/g, ''));
-  if (!configurations.includes(configuration)) {
-    throw new Error(
-      `Target "${targetName}" has no build configuration "${configuration}". Found: ${configurations.join(
-        ', '
-      )}.`
-    );
-  }
   IOSConfig.ProvisioningProfile.setProvisioningProfileForPbxproj(working, {
     targetName,
     profileName: signing.profileName,
     appleTeamId: signing.teamId,
     buildConfiguration: configuration,
   });
+}
+
+// Sets the bundle identifier on the app target the scheme builds and returns its Info.plist.
+export async function configureAppTarget(
+  working: string,
+  scheme: string,
+  configuration: string,
+  bundleIdentifier: string
+): Promise<{ targetName: string; infoPlist: string }> {
+  const application = await IOSConfig.Target.findApplicationTargetWithDependenciesAsync(
+    working,
+    scheme
+  );
+  const extensions = signableDependencies(application);
+  if (extensions.length > 0) {
+    throw new Error(
+      `This app has extensions (${extensions.join(
+        ', '
+      )}). Each one needs its own provisioning profile, which is not supported yet.`
+    );
+  }
+  const project = IOSConfig.XcodeUtils.getPbxproj(working);
+  const [, target] = IOSConfig.Target.findNativeTargetByName(project, application.name);
+  const configurations = IOSConfig.XcodeUtils.getBuildConfigurationsForListId(
+    project,
+    target.buildConfigurationList
+  );
+  const names = configurations.map(([, item]) => unquoted(item.name));
+  const selected = configurations.find(([, item]) => unquoted(item.name) === configuration);
+  if (!selected) {
+    throw new Error(
+      `Target "${
+        application.name
+      }" has no build configuration "${configuration}". Found: ${names.join(', ')}.`
+    );
+  }
+  for (const [, item] of configurations) {
+    item.buildSettings.PRODUCT_BUNDLE_IDENTIFIER = `"${bundleIdentifier}"`;
+  }
+  // eslint-disable-next-line node/no-sync
+  await fs.writeFile(project.filepath, project.writeSync());
+  return {
+    targetName: application.name,
+    infoPlist:
+      targetInfoPlist(working, selected[1].buildSettings.INFOPLIST_FILE) ??
+      IOSConfig.Paths.getInfoPlistPath(working),
+  };
+}
+
+function signableDependencies(target: IOSConfig.Target.Target): string[] {
+  return (target.dependencies ?? []).flatMap(dependency => [
+    ...(dependency.signable ? [dependency.name] : []),
+    ...signableDependencies(dependency),
+  ]);
+}
+
+function unquoted(value: string): string {
+  return value.replace(/^"|"$/g, '');
+}
+
+// The file INFOPLIST_FILE names, or undefined when it depends on a setting that is not a directory of the project.
+export function targetInfoPlist(working: string, setting?: string): string | undefined {
+  if (!setting) {
+    return undefined;
+  }
+  const ios = path.join(working, 'ios');
+  const resolved = unquoted(setting).replace(/\$[({](SRCROOT|PROJECT_DIR)[)}]/g, ios);
+  return resolved.includes('$') ? undefined : path.resolve(ios, resolved);
 }
 
 async function setPlistString(file: string, key: string, value: string): Promise<void> {
