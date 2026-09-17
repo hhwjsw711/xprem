@@ -132,3 +132,41 @@ func TestPrepareIosBuildCredentialsRevokesAnUnstoredCertificate(t *testing.T) {
 	assert.Empty(t, f.apple.Profiles)
 	assert.Equal(t, 1, f.apple.RequestCount("DELETE /v1/certificates/CERT1"), "the certificate Apple issued is revoked")
 }
+
+func TestPrepareIosBuildCredentialsCreatesOneCertificateForSimultaneousBuilds(t *testing.T) {
+	f := newAppStoreConnectFixture(t)
+	ctx := context.Background()
+	f.saveKey(t, f.appId)
+	identifiers := []string{
+		insertIdentifier(t, f.identifiers, f.appId, types.PlatformIOS, "com.example.one"),
+		insertIdentifier(t, f.identifiers, f.appId, types.PlatformIOS, "com.example.two"),
+		insertIdentifier(t, f.identifiers, f.appId, types.PlatformIOS, "com.example.three"),
+	}
+	errs := make(chan error, len(identifiers))
+	for _, identifierId := range identifiers {
+		go func() {
+			_, err := f.service.PrepareIosBuildCredentials(ctx, f.appId, identifierId, types.IosDistributionAppStore)
+			errs <- err
+		}()
+	}
+	for range identifiers {
+		require.NoError(t, <-errs)
+	}
+	assert.Equal(t, 1, f.apple.RequestCount("POST /v1/certificates"))
+}
+
+func TestPrepareIosBuildCredentialsKeepsTheCertificateOfADisconnectedBuild(t *testing.T) {
+	f := newAppStoreConnectFixture(t)
+	identifierId := insertIdentifier(t, f.identifiers, f.appId, types.PlatformIOS, "com.example.app")
+	f.saveKey(t, f.appId)
+	disconnected, disconnect := context.WithCancel(context.Background())
+	f.apple.AfterCertificateCreated = disconnect
+
+	_, err := f.service.PrepareIosBuildCredentials(disconnected, f.appId, identifierId, types.IosDistributionAppStore)
+	require.ErrorIs(t, err, context.Canceled)
+
+	f.apple.AfterCertificateCreated = nil
+	_, err = f.service.PrepareIosBuildCredentials(context.Background(), f.appId, identifierId, types.IosDistributionAppStore)
+	require.NoError(t, err)
+	assert.Equal(t, 1, f.apple.RequestCount("POST /v1/certificates"), "the retry signs with the certificate the first request created")
+}

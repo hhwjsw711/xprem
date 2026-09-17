@@ -8,6 +8,7 @@ import (
 	"time"
 	"xprem/internal/auditlog"
 	"xprem/internal/database"
+	"xprem/internal/database/postgres"
 	"xprem/internal/database/postgres/pgdb"
 	"xprem/internal/ios"
 	"xprem/internal/ios/iostest"
@@ -49,6 +50,7 @@ func newIosFixture(t *testing.T) *iosFixture {
 	f.service.SetOnAuditEvent(func(_ context.Context, event auditlog.Event) {
 		f.actions = append(f.actions, event.Action)
 	})
+	f.service.SetCertificateCreationLock(postgres.AdvisoryLocker(pool, postgres.IosCertificateLockID, "ios certificate"))
 	return f
 }
 

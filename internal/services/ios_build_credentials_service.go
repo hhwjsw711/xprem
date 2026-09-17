@@ -27,7 +27,7 @@ import (
 	pkcs12 "software.sslmate.com/src/go-pkcs12"
 )
 
-const iosCertificateFinalizeTimeout = 10 * time.Second
+const iosCertificateCreationTimeout = 3 * time.Minute
 
 // IosBuildCredentials is what a CLI needs to sign one iOS build.
 type IosBuildCredentials struct {
@@ -116,36 +116,62 @@ func bundleIDName(identifier string) string {
 // signingCertificate returns the pool certificate that signs the identifier with its Apple id: the
 // selected one, or in automatic mode the pool certificate of the team that expires last, created when there is none.
 func (s *IosCredentialsService) signingCertificate(ctx context.Context, client *appstoreconnect.Client, appId string, identifierId string) (*store.IosCertificate, string, error) {
-	appleCertificates, err := client.ListDistributionCertificates(ctx)
-	if err != nil {
-		return nil, "", appStoreConnectError(err)
-	}
-	appleIds := map[string]string{}
-	for _, appleCertificate := range appleCertificates {
-		appleIds[ios.Fingerprint(appleCertificate.DER)] = appleCertificate.ID
-	}
 	setting, err := s.repo.GetIosSigningSetting(ctx, identifierId)
 	if err != nil {
 		return nil, "", err
 	}
-	if setting != nil && setting.Mode == types.IosSigningCertificate {
-		var selected *store.IosCertificate
-		if setting.CertificateId != nil {
-			if selected, err = s.repo.GetIosCertificate(ctx, *setting.CertificateId); err != nil {
-				return nil, "", err
-			}
+	if setting == nil || setting.Mode != types.IosSigningCertificate {
+		return s.automaticCertificate(ctx, client, appId)
+	}
+	appleIds, err := appleCertificateIds(ctx, client)
+	if err != nil {
+		return nil, "", err
+	}
+	var selected *store.IosCertificate
+	if setting.CertificateId != nil {
+		if selected, err = s.repo.GetIosCertificate(ctx, *setting.CertificateId); err != nil {
+			return nil, "", err
 		}
-		if selected == nil {
-			return nil, "", validation.Errorf("", "The selected certificate no longer exists: select another one or switch to automatic management")
+	}
+	if selected == nil {
+		return nil, "", validation.Errorf("", "The selected certificate no longer exists: select another one or switch to automatic management")
+	}
+	if !time.Now().Before(selected.ExpiresAt) {
+		return nil, "", validation.Errorf("", "The selected certificate expired on %s: select another one or switch to automatic management", selected.ExpiresAt.UTC().Format(time.DateOnly))
+	}
+	appleId, listed := appleIds[selected.FingerprintSHA1]
+	if !listed {
+		return nil, "", validation.Errorf("", "The selected certificate was revoked at Apple: select another one or switch to automatic management")
+	}
+	return selected, appleId, nil
+}
+
+// automaticCertificate returns the usable pool certificate that expires last, creating one when
+// there is none. Builds that find none take turns, and look again once it is theirs.
+func (s *IosCredentialsService) automaticCertificate(ctx context.Context, client *appstoreconnect.Client, appId string) (*store.IosCertificate, string, error) {
+	certificate, appleId, err := s.latestPoolCertificate(ctx, client)
+	if err != nil || certificate != nil {
+		return certificate, appleId, err
+	}
+	if s.lockCertificateCreation != nil {
+		release, err := s.lockCertificateCreation(ctx)
+		if err != nil {
+			return nil, "", err
 		}
-		if !time.Now().Before(selected.ExpiresAt) {
-			return nil, "", validation.Errorf("", "The selected certificate expired on %s: select another one or switch to automatic management", selected.ExpiresAt.UTC().Format(time.DateOnly))
+		defer release()
+		certificate, appleId, err = s.latestPoolCertificate(ctx, client)
+		if err != nil || certificate != nil {
+			return certificate, appleId, err
 		}
-		appleId, listed := appleIds[selected.FingerprintSHA1]
-		if !listed {
-			return nil, "", validation.Errorf("", "The selected certificate was revoked at Apple: select another one or switch to automatic management")
-		}
-		return selected, appleId, nil
+	}
+	return s.createIosCertificate(ctx, client, appId)
+}
+
+// latestPoolCertificate returns the pool certificate Apple still lists for the team that expires last, or nil.
+func (s *IosCredentialsService) latestPoolCertificate(ctx context.Context, client *appstoreconnect.Client) (*store.IosCertificate, string, error) {
+	appleIds, err := appleCertificateIds(ctx, client)
+	if err != nil {
+		return nil, "", err
 	}
 	pool, err := s.repo.ListIosCertificates(ctx)
 	if err != nil {
@@ -158,15 +184,31 @@ func (s *IosCredentialsService) signingCertificate(ctx context.Context, client *
 			latest = &pool[i]
 		}
 	}
-	if latest != nil {
-		return latest, appleIds[latest.FingerprintSHA1], nil
+	if latest == nil {
+		return nil, "", nil
 	}
-	return s.createIosCertificate(ctx, client, appId)
+	return latest, appleIds[latest.FingerprintSHA1], nil
+}
+
+// appleCertificateIds maps the fingerprint of each distribution certificate of the team to its Apple id.
+func appleCertificateIds(ctx context.Context, client *appstoreconnect.Client) (map[string]string, error) {
+	appleCertificates, err := client.ListDistributionCertificates(ctx)
+	if err != nil {
+		return nil, appStoreConnectError(err)
+	}
+	appleIds := map[string]string{}
+	for _, appleCertificate := range appleCertificates {
+		appleIds[ios.Fingerprint(appleCertificate.DER)] = appleCertificate.ID
+	}
+	return appleIds, nil
 }
 
 // createIosCertificate has Apple issue a distribution certificate for a new private key and stores it
 // in the pool; a certificate that cannot be stored is revoked.
 func (s *IosCredentialsService) createIosCertificate(ctx context.Context, client *appstoreconnect.Client, appId string) (*store.IosCertificate, string, error) {
+	// A certificate Apple issues must be stored or revoked even if the CLI disconnected meanwhile.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), iosCertificateCreationTimeout)
+	defer cancel()
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		return nil, "", err
@@ -183,9 +225,6 @@ func (s *IosCredentialsService) createIosCertificate(ctx context.Context, client
 		}
 		return nil, "", appStoreConnectError(err)
 	}
-	// A certificate Apple issued must be stored or revoked even if the CLI disconnected.
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), iosCertificateFinalizeTimeout)
-	defer cancel()
 	certificate, err := s.storeCreatedCertificate(ctx, appId, privateKey, created.DER)
 	if err != nil {
 		if revokeErr := client.RevokeCertificate(ctx, created.ID); revokeErr != nil {

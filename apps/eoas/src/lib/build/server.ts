@@ -44,8 +44,10 @@ export async function fetchCredentials<T extends object>(
   query: Record<string, string> = {}
 ): Promise<T> {
   const search = new URLSearchParams(query).toString();
+  // A first iOS build has the server create a certificate and a profile at Apple before it answers.
   const credentials = await request<Record<string, unknown>>(
-    `${endpoint}/credentials/${platform}${search ? `?${search}` : ''}`
+    `${endpoint}/credentials/${platform}${search ? `?${search}` : ''}`,
+    { timeout: 180000 }
   );
   if (fields.some(field => typeof credentials[field] !== 'string' || !credentials[field])) {
     throw new Error(`Incomplete ${platform} signing credentials.`);

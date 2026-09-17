@@ -118,6 +118,7 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 	var appIdentifierRepo services.AppIdentifierRepository
 	var credentialsRepo services.CredentialsRepository
 	var iosCredentialsRepo services.IosCredentialsRepository
+	var lockIosCertificate func(ctx context.Context) (release func(), err error)
 	var environmentRepo services.EnvironmentRepository
 	var licenseRepo licensing.LicenseRepository
 	var ssoRepo sso.SSORepository
@@ -197,6 +198,7 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 		buildCleanup = services.NewBuildCleanup(dbEngine.DB, resolvedBucket)
 		credentialsRepo = store.NewPostgresCredentialsStore(dbEngine)
 		iosCredentialsRepo = store.NewPostgresIosCredentialsStore(dbEngine)
+		lockIosCertificate = postgres.AdvisoryLocker(dbEngine.DB, postgres.IosCertificateLockID, "ios certificate")
 		environmentRepo = store.NewPostgresEnvironmentStore(dbEngine)
 
 		// Resolved even when telemetry is off: licensing needs the instance id.
@@ -335,6 +337,7 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 	credentialsService := services.NewCredentialsService(credentialsRepo, appIdentifierRepo)
 	credentialsService.SetOnAuditEvent(auditService.Record)
 	iosCredentialsService := services.NewIosCredentialsService(iosCredentialsRepo, appIdentifierRepo)
+	iosCredentialsService.SetCertificateCreationLock(lockIosCertificate)
 	iosCredentialsService.SetOnAuditEvent(auditService.Record)
 	environmentService := services.NewEnvironmentService(environmentRepo)
 	environmentService.SetOnAuditEvent(auditService.Record)
