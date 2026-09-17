@@ -1,6 +1,6 @@
 import spawnAsync from '@expo/spawn-async';
 import { spawnSync } from 'child_process';
-import { randomBytes, randomUUID } from 'crypto';
+import { createHash, randomBytes, randomUUID } from 'crypto';
 import fs from 'fs-extra';
 import os from 'os';
 import path from 'path';
@@ -107,6 +107,11 @@ export async function installSigning(
       ],
       'authorize codesign to use the certificate'
     );
+    assertProfileHoldsIdentity(
+      profileName,
+      await signingIdentities(keychain),
+      await profileCertificates(decoded)
+    );
     const searchList = (await keychainSearchList()).filter(entry => entry !== keychain);
     await run(
       'security',
@@ -126,6 +131,66 @@ export async function installSigning(
     throw error;
   }
   return { keychain, profileName, profileUuid, teamId: credentials.teamId, remove };
+}
+
+// The SHA-1 of the certificates macOS accepts for signing in a keychain.
+async function signingIdentities(keychain: string): Promise<string[]> {
+  const list = async (...flags: string[]): Promise<string[]> => {
+    const { stdout } = await spawnAsync('security', [
+      'find-identity',
+      ...flags,
+      '-p',
+      'codesigning',
+      keychain,
+    ]);
+    return parseIdentities(stdout);
+  };
+  const valid = await list('-v');
+  if (valid.length === 0) {
+    throw new Error(
+      (await list()).length === 0
+        ? 'The signing certificate holds no private key, so it cannot sign.'
+        : 'macOS does not accept the signing certificate: it is expired or revoked, or the Apple Worldwide Developer Relations intermediate certificate is missing on this machine.'
+    );
+  }
+  return valid;
+}
+
+export function parseIdentities(output: string): string[] {
+  return [...output.matchAll(/^\s*\d+\) ([0-9A-F]{40}) /gm)].map(([, sha1]) => sha1);
+}
+
+// The SHA-1 of the certificates a decoded provisioning profile allows.
+async function profileCertificates(decoded: string): Promise<string[]> {
+  const { stdout } = await spawnAsync('plutil', [
+    '-extract',
+    'DeveloperCertificates',
+    'xml1',
+    '-o',
+    '-',
+    decoded,
+  ]);
+  return parseCertificates(stdout);
+}
+
+export function parseCertificates(xml: string): string[] {
+  return [...xml.matchAll(/<data>([\s\S]*?)<\/data>/g)].map(([, encoded]) =>
+    createHash('sha1').update(Buffer.from(encoded, 'base64')).digest('hex').toUpperCase()
+  );
+}
+
+export function assertProfileHoldsIdentity(
+  profileName: string,
+  identities: string[],
+  certificates: string[]
+): void {
+  if (!identities.some(identity => certificates.includes(identity))) {
+    throw new Error(
+      `The provisioning profile "${profileName}" does not allow the signing certificate (${identities.join(
+        ', '
+      )}). Check the iOS signing settings of this app on the server.`
+    );
+  }
 }
 
 async function keychainSearchList(): Promise<string[]> {
