@@ -280,21 +280,21 @@ func TestProfileLifecycle(t *testing.T) {
 	server.Devices = []appstoreconnecttest.Device{{ID: "DEVICE1", UDID: "UDID-1", Platform: "IOS", Status: "ENABLED"}}
 	certificateID := server.RegisterCertificate([]byte("certificate"))
 
-	missing, err := client.FindProfile(ctx, "xprem com.example.app ad-hoc")
+	missing, err := client.FindProfile(ctx, "xprem managed - com.example.app - ad-hoc")
 	require.NoError(t, err)
 	assert.Nil(t, missing)
 
-	_, err = client.CreateProfile(ctx, ProfileInput{Name: "xprem com.example.app ad-hoc", Type: ProfileTypeAdHoc, BundleID: "BUNDLE1", CertificateIDs: []string{certificateID}})
+	_, err = client.CreateProfile(ctx, ProfileInput{Name: "xprem managed - com.example.app - ad-hoc", Type: ProfileTypeAdHoc, BundleID: "BUNDLE1", CertificateIDs: []string{certificateID}})
 	var apiErr *APIError
 	require.ErrorAs(t, err, &apiErr)
 	assert.Equal(t, http.StatusConflict, apiErr.Status)
 
-	created, err := client.CreateProfile(ctx, ProfileInput{Name: "xprem com.example.app ad-hoc", Type: ProfileTypeAdHoc, BundleID: "BUNDLE1", CertificateIDs: []string{certificateID}, DeviceIDs: []string{"DEVICE1"}})
+	created, err := client.CreateProfile(ctx, ProfileInput{Name: "xprem managed - com.example.app - ad-hoc", Type: ProfileTypeAdHoc, BundleID: "BUNDLE1", CertificateIDs: []string{certificateID}, DeviceIDs: []string{"DEVICE1"}})
 	require.NoError(t, err)
 	assert.Equal(t, ProfileStateActive, created.State)
 	assert.NotEmpty(t, created.Content)
 
-	found, err := client.FindProfile(ctx, "xprem com.example.app ad-hoc")
+	found, err := client.FindProfile(ctx, "xprem managed - com.example.app - ad-hoc")
 	require.NoError(t, err)
 	require.NotNil(t, found)
 	assert.Equal(t, created.ID, found.ID)
@@ -309,7 +309,7 @@ func TestProfileLifecycle(t *testing.T) {
 	assert.Equal(t, []string{"DEVICE1"}, deviceIDs)
 
 	require.NoError(t, client.DeleteProfile(ctx, created.ID))
-	found, err = client.FindProfile(ctx, "xprem com.example.app ad-hoc")
+	found, err = client.FindProfile(ctx, "xprem managed - com.example.app - ad-hoc")
 	require.NoError(t, err)
 	assert.Nil(t, found)
 }

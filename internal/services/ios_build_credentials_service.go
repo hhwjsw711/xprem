@@ -72,7 +72,7 @@ func (s *IosCredentialsService) PrepareIosBuildCredentials(ctx context.Context, 
 		}
 	}
 	profile, err := ensureProfile(ctx, client, appstoreconnect.ProfileInput{
-		Name:           "xprem " + ref.Identifier + " " + string(distribution),
+		Name:           "xprem managed - " + ref.Identifier + " - " + string(distribution),
 		Type:           profileType,
 		BundleID:       bundleID.ID,
 		CertificateIDs: []string{appleCertificateId},
