@@ -9,10 +9,10 @@ import {
   startBuildRecord,
   uploadBuildArtifact,
 } from './artifacts';
+import { BuildStep } from './steps';
 import { secretsToRedact } from './errors';
 import { fingerprintBuild } from './fingerprint';
-import { BuildLog, PhaseLogger } from './log';
-import { BuildPhase } from './phases';
+import { BuildLog, LogWriter } from './log';
 import {
   BuildInputs,
   BuildOptions,
@@ -45,11 +45,11 @@ import { resolveExpoUpdatesCli } from '../runtimeVersion';
 // What one platform resolves before the project is copied; everything else is shared.
 export interface NativePreparation<C> {
   platform: BuildPlatform;
-  toolsTitle: string;
-  credentialsTitle: string;
+  toolsTitle: BuildStep;
+  credentialsTitle: BuildStep;
   resolveTools(
     local: Record<string, string>,
-    phaseLog: PhaseLogger,
+    stepLog: LogWriter,
     recordTool: (name: string, version: string) => void
   ): Promise<Record<string, string>>;
   describe(profile: BuildProfile): {
@@ -66,22 +66,17 @@ export async function prepareNativeBuild<C>(
   buildLog: BuildLog,
   preparation: NativePreparation<C>
 ): Promise<BuildInputs & { credentials: C }> {
-  const profile = await buildLog.runBuildPhase(
-    BuildPhase.CUSTOM,
-    () => selectProfile(project, options),
-    'Read xprem.json'
+  const profile = await buildLog.runStep(BuildStep.READ_BUILD_CONFIG, () =>
+    selectProfile(project, options)
   );
   const { applicationId, mode, extension } = preparation.describe(profile);
   const local = await readEnvFile(project, options.envFile);
   buildLog.maskSecrets(secretsToRedact(local, []));
   const toolVersions: Record<string, string> = {};
-  const toolEnv = await buildLog.runBuildPhase(
-    BuildPhase.BUILDER_INFO,
-    phaseLog =>
-      preparation.resolveTools(local, phaseLog, (name, version) => {
-        toolVersions[name] = version;
-      }),
-    preparation.toolsTitle
+  const toolEnv = await buildLog.runStep(preparation.toolsTitle, stepLog =>
+    preparation.resolveTools(local, stepLog, (name, version) => {
+      toolVersions[name] = version;
+    })
   );
   const packageRunner = splitPackageRunner(resolvePackageRunner(options.packageRunner, project));
   const nodeEnv = nodeEnvFor(mode);
@@ -92,14 +87,12 @@ export async function prepareNativeBuild<C>(
     applicationId,
     configEnvironment(local, toolEnv, nodeEnv)
   );
-  const variables = await buildLog.runBuildPhase(BuildPhase.SET_UP_BUILD_ENVIRONMENT, phaseLog =>
-    fetchBuildEnvironment(endpoint, profile, local, phaseLog)
+  const variables = await buildLog.runStep(BuildStep.SET_UP_BUILD_ENVIRONMENT, stepLog =>
+    fetchBuildEnvironment(endpoint, profile, local, stepLog)
   );
   buildLog.maskSecrets(secretsToRedact(variables, []));
-  const credentials = await buildLog.runBuildPhase(
-    BuildPhase.PREPARE_CREDENTIALS,
-    () => preparation.fetchCredentials(endpoint, profile),
-    preparation.credentialsTitle
+  const credentials = await buildLog.runStep(preparation.credentialsTitle, () =>
+    preparation.fetchCredentials(endpoint, profile)
   );
   const output = await resolveOutputPath(project, options, extension, buildLog);
   return {
@@ -161,13 +154,13 @@ export async function runNativeBuild(
     native.distribution
   );
   if (build.options.stream) {
-    buildLog.streamTo(createLogUploader(build.endpoint, record.id, secrets, buildLog.warn));
-    buildLog.info('Streaming build logs to xprem.');
+    buildLog.streamTo(createLogUploader(build.endpoint, record.id, secrets, buildLog.general.warn));
+    buildLog.general.info('Streaming build logs to xprem.');
   }
-  buildLog.info(`Build ID: ${record.id}`);
+  buildLog.general.info(`Build ID: ${record.id}`);
   let output: string;
   try {
-    const working = await buildLog.runBuildPhase(BuildPhase.PREPARE_PROJECT, async () => {
+    const working = await buildLog.runStep(BuildStep.PREPARE_PROJECT, async () => {
       const working = await copyProject(build.project, temporary);
       if (
         native.developmentClient &&
@@ -177,42 +170,36 @@ export async function runNativeBuild(
       }
       return working;
     });
-    const expo = await buildLog.runBuildPhase(BuildPhase.READ_APP_CONFIG, async () => {
+    const expo = await buildLog.runStep(BuildStep.READ_APP_CONFIG, async () => {
       const config = await evaluateExpoConfig(build, working);
       await writeAppJson(working, config);
       return config;
     });
-    await buildLog.runBuildPhase(
-      BuildPhase.EAGER_BUNDLE,
-      async phaseLog => {
-        await validateBundle(build, platform, mode, working, temporary, phaseLog, secrets);
+    await buildLog.runStep(
+      platform === 'android' ? BuildStep.VALIDATE_ANDROID_BUNDLE : BuildStep.VALIDATE_IOS_BUNDLE,
+      async stepLog => {
+        await validateBundle(build, platform, mode, working, temporary, stepLog, secrets);
         await restoreMetroConfig(working);
-      },
-      `Validate ${native.displayName} bundle`
+      }
     );
-    const buildNumber = await buildLog.runBuildPhase(
-      BuildPhase.CUSTOM,
-      async () => Number(await allocateBuildNumber(build.endpoint)),
-      'Allocate build number'
+    const buildNumber = await buildLog.runStep(BuildStep.ALLOCATE_BUILD_NUMBER, async () =>
+      Number(await allocateBuildNumber(build.endpoint))
     );
     const effectiveExpo = native.withIdentity(expo, buildNumber);
     await writeAppJson(working, effectiveExpo);
     Object.assign(record.metadata, {
       version: expo.version,
       buildNumber: String(buildNumber),
-      ...(await buildLog.runBuildPhase(
-        BuildPhase.CALCULATE_EXPO_UPDATES_RUNTIME_VERSION,
-        phaseLog =>
-          fingerprintBuild(build, platform, working, temporary, effectiveExpo, phaseLog, secrets),
-        'Calculate Expo fingerprint and runtime'
+      ...(await buildLog.runStep(BuildStep.CALCULATE_RUNTIME, stepLog =>
+        fingerprintBuild(build, platform, working, temporary, effectiveExpo, stepLog, secrets)
       )),
     });
     if (!build.options.ignoreEnvCheck) {
       await installMetroCheck(working, temporary, Object.keys(build.variables));
     }
-    await buildLog.runBuildPhase(BuildPhase.PREBUILD, async phaseLog => {
+    await buildLog.runStep(BuildStep.PREBUILD, async stepLog => {
       if (await fs.pathExists(path.join(working, platform))) {
-        phaseLog.info(native.maintainedProjectNotice);
+        stepLog.info(native.maintainedProjectNotice);
         // Same as EAS for bare projects: the manifest keeps whatever environment
         // the last prebuild saw, so channel, URL and runtime are re-synced here.
         await runBuildCommand(
@@ -230,7 +217,7 @@ export async function runNativeBuild(
             cwd: working,
             env: build.env,
           },
-          phaseLog,
+          stepLog,
           secrets
         );
       } else {
@@ -241,14 +228,14 @@ export async function runNativeBuild(
             platform,
             '--no-install',
           ]),
-          phaseLog,
+          stepLog,
           secrets
         );
       }
     });
     const workspace: NativeWorkspace = { working, temporary, buildNumber, buildLog, secrets };
     await native.compile(workspace);
-    output = await buildLog.runBuildPhase(BuildPhase.PREPARE_ARTIFACTS, async phaseLog => {
+    output = await buildLog.runStep(BuildStep.PREPARE_ARTIFACTS, async stepLog => {
       await fs.ensureDir(path.dirname(build.output));
       await fs.copyFile(
         await native.findArtifact(workspace),
@@ -256,14 +243,14 @@ export async function runNativeBuild(
         fs.constants.COPYFILE_EXCL
       );
       const summary = `Built ${build.output} (${native.buildNumberName} ${buildNumber}).`;
-      phaseLog.write(summary);
+      stepLog.write(summary);
       Log.succeed(summary);
       await finishBuildRecord(record, build.output);
       return build.output;
     });
   } catch (error) {
     await failBuildRecord(record, build.output).catch(() => {
-      buildLog.warn(
+      buildLog.general.warn(
         'Could not report the failed build to the server. Local build metadata is retained.'
       );
     });
@@ -273,7 +260,7 @@ export async function runNativeBuild(
     await uploadBuildArtifact(output, build.endpoint, buildLog);
   } catch (error) {
     await failBuildRecord(record, build.output).catch(() => {
-      buildLog.warn('Could not report the failed upload to the server.');
+      buildLog.general.warn('Could not report the failed upload to the server.');
     });
     const message = error instanceof Error ? error.message : 'Artifact upload failed.';
     throw new Error(

@@ -17,8 +17,8 @@ func TestBuildLogsOrderedIdempotentAndScoped(t *testing.T) {
 	id := uuid.NewString()
 	_, _, err := f.builds.Create(ctx, f.record(id, types.BuildStatusBuilding))
 	require.NoError(t, err)
-	firstContent := `{"logId":"first","time":"2026-09-09T10:00:00Z","level":30,"msg":"héllo"}` + "\n"
-	secondContent := `{"logId":"second","time":"2026-09-09T10:00:01Z","level":30,"msg":"done"}` + "\n"
+	firstContent := `{"buildStepId":"general","buildStepDisplayName":"Build","time":"2026-09-09T10:00:00Z","level":30,"msg":"héllo"}` + "\n"
+	secondContent := `{"buildStepId":"general","buildStepDisplayName":"Build","time":"2026-09-09T10:00:01Z","level":30,"msg":"done"}` + "\n"
 	secondOffset := int32(len(firstContent))
 	thirdOffset := secondOffset + int32(len(secondContent))
 	// An uncertain response can be retried concurrently without duplicating output.
@@ -48,7 +48,7 @@ func TestBuildLogsOrderedIdempotentAndScoped(t *testing.T) {
 	logs, err = f.builds.ListLogs(ctx, f.app, id, secondOffset)
 	require.NoError(t, err)
 	require.Len(t, logs, 1)
-	content := `{"logId":"event","time":"2026-09-09T10:00:00Z","level":30,"msg":"structured"}` + "\n"
+	content := `{"buildStepId":"general","buildStepDisplayName":"Build","time":"2026-09-09T10:00:00Z","level":30,"msg":"structured"}` + "\n"
 	require.NoError(t, f.builds.AppendLogs(ctx, f.app, id, thirdOffset, content))
 	require.NoError(t, f.builds.AppendLogs(ctx, f.app, id, thirdOffset, content))
 	require.ErrorIs(t, f.builds.AppendLogs(ctx, f.app, id, thirdOffset, secondContent), store.ErrBuildLogOffset)

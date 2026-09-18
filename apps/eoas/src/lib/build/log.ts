@@ -2,23 +2,21 @@ import { randomUUID } from 'crypto';
 
 import { createBuildOutputRedactor } from './errors';
 import { openLogFile } from './logFile';
-import { BuildPhase, BuildPhaseResult, LogMarker, buildPhaseDisplayName } from './phases';
+import { BuildStep, BuildStepResult, LogMarker } from './steps';
 import Log from '../log';
 
 type OutputSource = 'stdout' | 'stderr';
 
 // One line of the build log, in the JSON shape the server and dashboard read.
 export interface LogLine {
-  logId: string;
   time: string;
   level: 30 | 40 | 50;
   msg: string;
-  phase?: BuildPhase;
-  buildStepId?: string;
-  buildStepDisplayName?: string;
+  buildStepId: string;
+  buildStepDisplayName: BuildStep;
   source?: OutputSource;
   marker?: LogMarker;
-  result?: BuildPhaseResult;
+  result?: BuildStepResult;
   durationMs?: number;
 }
 
@@ -28,31 +26,30 @@ export interface LogUploader {
   close(): Promise<void>;
 }
 
-// What the work of one build phase writes with. Its lines carry that phase.
-export interface PhaseLogger {
+// Writes messages to an identified build step.
+export interface LogWriter {
   // write keeps a line in the log only; info and warn also show it in the terminal.
   write(line: string, source?: OutputSource): void;
   info(line: string): void;
   warn(line: string): void;
+}
+
+export interface StepLogger extends LogWriter {
   markSkipped(): void;
 }
 
 // The log of a whole build: a local file, optionally streamed to the server.
 export interface BuildLog {
   path: string;
-  write(line: string, source?: OutputSource): void;
-  info(line: string): void;
-  warn(line: string): void;
+  general: LogWriter;
   maskSecrets(secrets: string[]): void;
   streamTo(uploader: LogUploader): void;
-  runBuildPhase<T>(
-    phase: BuildPhase,
-    work: (phaseLog: PhaseLogger) => Promise<T>,
-    displayName?: string
-  ): Promise<T>;
+  runStep<T>(displayName: BuildStep, work: (stepLog: StepLogger) => Promise<T>): Promise<T>;
   abort(): void;
   close(): Promise<void>;
 }
+
+type StepIdentity = Pick<LogLine, 'buildStepId' | 'buildStepDisplayName'>;
 
 // Lines written before streamTo is called are held for the uploader, up to this size.
 const MAX_HELD_BYTES = 256 * 1024;
@@ -68,22 +65,21 @@ export async function createBuildLog(
   const heldForUpload: LogLine[] = [];
   let heldBytes = 0;
   let closing: Promise<void> | undefined;
-  let failCurrentPhase: (() => void) | undefined;
+  let failCurrentStep: (() => void) | undefined;
 
   const addLine = (
-    phaseFields: Partial<LogLine>,
+    stepFields: StepIdentity,
     msg: string,
-    extra: Partial<LogLine> = {}
+    extra: Partial<Omit<LogLine, keyof StepIdentity | 'time' | 'msg'>> = {}
   ): void => {
     if (closing) {
       return;
     }
     const logLine: LogLine = {
-      logId: randomUUID(),
       time: new Date().toISOString(),
       level: 30,
       msg: redact(msg),
-      ...phaseFields,
+      ...stepFields,
       ...extra,
     };
     if (uploader) {
@@ -92,27 +88,26 @@ export async function createBuildLog(
       heldForUpload.push(logLine);
       heldBytes += Buffer.byteLength(JSON.stringify(logLine));
     }
-    logFile.append(`${phasePrefix(logLine.phase)}${logLine.msg}`);
+    logFile.append(`[${logLine.buildStepDisplayName}] ${logLine.msg}`);
   };
 
-  const loggingMethods = (
-    phaseFields: Partial<LogLine>
-  ): Pick<PhaseLogger, 'write' | 'info' | 'warn'> => {
+  const loggingMethods = (stepFields: StepIdentity, onWarning?: () => void): LogWriter => {
     const terminalLine = (line: string): string =>
-      `${phasePrefix(phaseFields.phase)}${redact(line)}`;
+      `[${stepFields.buildStepDisplayName}] ${redact(line)}`;
     return {
       write(line, source) {
-        addLine(phaseFields, line, { source });
+        addLine(stepFields, line, { source });
         if (verbose) {
           (source === 'stderr' ? process.stderr : process.stdout).write(`${terminalLine(line)}\n`);
         }
       },
       info(line) {
-        addLine(phaseFields, line);
+        addLine(stepFields, line);
         Log.log(terminalLine(line));
       },
       warn(line) {
-        addLine(phaseFields, line, { level: 40 });
+        onWarning?.();
+        addLine(stepFields, line, { level: 40 });
         Log.warn(terminalLine(line));
       },
     };
@@ -120,7 +115,7 @@ export async function createBuildLog(
 
   return {
     path: logFile.path,
-    ...loggingMethods({}),
+    general: loggingMethods({ buildStepId: randomUUID(), buildStepDisplayName: BuildStep.GENERAL }),
     maskSecrets(secrets) {
       redact = createBuildOutputRedactor(secrets);
     },
@@ -131,21 +126,17 @@ export async function createBuildLog(
       }
       heldForUpload.length = 0;
     },
-    async runBuildPhase(phase, work, displayName = buildPhaseDisplayName[phase]) {
-      const phaseFields: Partial<LogLine> = {
-        phase,
+    async runStep(displayName, work) {
+      const stepFields: StepIdentity = {
         buildStepId: randomUUID(),
         buildStepDisplayName: displayName,
       };
-      const methods = loggingMethods(phaseFields);
       let warned = false;
       let skipped = false;
-      const phaseLog: PhaseLogger = {
-        ...methods,
-        warn(line) {
+      const stepLog: StepLogger = {
+        ...loggingMethods(stepFields, () => {
           warned = true;
-          methods.warn(line);
-        },
+        }),
         markSkipped() {
           skipped = true;
         },
@@ -153,50 +144,50 @@ export async function createBuildLog(
 
       const startedAt = Date.now();
       let finished = false;
-      const finishPhase = (result: BuildPhaseResult): void => {
+      const finishStep = (result: BuildStepResult): void => {
         if (finished) {
           return;
         }
         finished = true;
-        failCurrentPhase = undefined;
-        addLine(phaseFields, `End phase: ${phase}`, {
-          marker: LogMarker.END_PHASE,
+        failCurrentStep = undefined;
+        addLine(stepFields, `End step: ${displayName}`, {
+          marker: LogMarker.END_STEP,
           result,
           durationMs: Date.now() - startedAt,
         });
         const summary = `${displayName} — ${result}`;
-        if (result === BuildPhaseResult.FAIL) {
+        if (result === BuildStepResult.FAIL) {
           Log.fail(summary);
         } else {
           Log.succeed(summary);
         }
       };
 
-      failCurrentPhase = (): void => {
-        finishPhase(BuildPhaseResult.FAIL);
+      failCurrentStep = (): void => {
+        finishStep(BuildStepResult.FAIL);
       };
-      addLine(phaseFields, `Start phase: ${phase}`, { marker: LogMarker.START_PHASE });
+      addLine(stepFields, `Start step: ${displayName}`, { marker: LogMarker.START_STEP });
       Log.log(displayName);
       try {
-        const value = await work(phaseLog);
-        finishPhase(
+        const value = await work(stepLog);
+        finishStep(
           skipped
-            ? BuildPhaseResult.SKIPPED
+            ? BuildStepResult.SKIPPED
             : warned
-              ? BuildPhaseResult.WARNING
-              : BuildPhaseResult.SUCCESS
+              ? BuildStepResult.WARNING
+              : BuildStepResult.SUCCESS
         );
         return value;
       } catch (error) {
-        addLine(phaseFields, error instanceof Error ? error.message : 'Build phase failed.', {
+        addLine(stepFields, error instanceof Error ? error.message : 'Build step failed.', {
           level: 50,
         });
-        finishPhase(BuildPhaseResult.FAIL);
+        finishStep(BuildStepResult.FAIL);
         throw error;
       }
     },
     abort() {
-      failCurrentPhase?.();
+      failCurrentStep?.();
     },
     close() {
       closing ??= (async () => {
@@ -221,14 +212,14 @@ export async function withBuildLog<T>(
   verbose = false
 ): Promise<T> {
   const buildLog = await createBuildLog(project, profile, verbose);
-  buildLog.write(`${title} — profile ${profile} — ${new Date().toISOString()}`);
+  buildLog.general.write(`${title} — profile ${profile} — ${new Date().toISOString()}`);
   Log.log(`Build log: ${buildLog.path}`);
   let result: T;
   try {
     result = await work(buildLog);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Build failed.';
-    buildLog.write(message);
+    buildLog.general.write(message);
     await buildLog.close().catch(closeError => {
       Log.warn(`Build log may be incomplete: ${(closeError as Error).message}`);
     });
@@ -236,8 +227,4 @@ export async function withBuildLog<T>(
   }
   await buildLog.close();
   return result;
-}
-
-function phasePrefix(phase?: BuildPhase): string {
-  return phase ? `[${phase}] ` : '';
 }

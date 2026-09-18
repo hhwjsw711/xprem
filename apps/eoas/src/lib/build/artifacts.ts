@@ -4,9 +4,9 @@ import originalFetch from 'node-fetch';
 import path from 'path';
 import { validate as isUuid } from 'uuid';
 
-import { BuildLog, PhaseLogger } from './log';
+import { BuildStep } from './steps';
+import { BuildLog, LogWriter } from './log';
 import { BuildMachine, describeMachine } from './machine';
-import { BuildPhase } from './phases';
 import { BuildInputs } from './prepare';
 import { BuildServerError, request } from './server';
 import { assertSafeUploadUrl } from '../assets';
@@ -128,7 +128,7 @@ export async function finishBuildRecord(record: LocalBuildRecord, file: string):
   await saveRecord(`${file}.build.json`, record);
 }
 
-async function uploadArtifact(file: string, serverUrl: string, log?: PhaseLogger): Promise<string> {
+async function uploadArtifact(file: string, serverUrl: string, log: LogWriter): Promise<string> {
   const record: LocalBuildRecord = await fs.readJson(`${file}.build.json`);
   if (
     record.schemaVersion !== 1 ||
@@ -188,14 +188,14 @@ async function uploadArtifact(file: string, serverUrl: string, log?: PhaseLogger
     throw new Error('Invalid artifact upload response.');
   }
   assertSafeUploadUrl(upload.url);
-  log?.info(`Uploading ${path.basename(file)} (${(size / 1048576).toFixed(1)} MB)`);
+  log.info(`Uploading ${path.basename(file)} (${(size / 1048576).toFixed(1)} MB)`);
   const stream = fs.createReadStream(file);
   let sent = 0;
   let lastProgress = 0;
   stream.on('data', chunk => {
     sent += chunk.length;
     if (Date.now() - lastProgress > 1000 || sent === size) {
-      log?.write(`Sending ${(sent / 1048576).toFixed(1)} / ${(size / 1048576).toFixed(1)} MB`);
+      log.write(`Sending ${(sent / 1048576).toFixed(1)} / ${(size / 1048576).toFixed(1)} MB`);
       lastProgress = Date.now();
     }
   });
@@ -228,18 +228,16 @@ async function uploadArtifact(file: string, serverUrl: string, log?: PhaseLogger
   if (completed.id !== record.id || completed.status !== 'ready') {
     throw new Error('The server has not finalized the artifact.');
   }
-  log?.info(`Build ${record.id} uploaded and verified.`);
+  log.info(`Build ${record.id} uploaded and verified.`);
   return record.id;
 }
 
 export async function uploadBuildArtifact(
   file: string,
   serverUrl: string,
-  log?: BuildLog
+  log: BuildLog
 ): Promise<string> {
-  return log
-    ? await log.runBuildPhase(BuildPhase.UPLOAD_APPLICATION_ARCHIVE, phaseLog =>
-        uploadArtifact(file, serverUrl, phaseLog)
-      )
-    : await uploadArtifact(file, serverUrl);
+  return await log.runStep(BuildStep.UPLOAD_APPLICATION_ARCHIVE, stepLog =>
+    uploadArtifact(file, serverUrl, stepLog)
+  );
 }

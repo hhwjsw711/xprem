@@ -3,8 +3,8 @@ import os from 'os';
 import path from 'path';
 import { afterEach, beforeEach, expect, it } from 'vitest';
 
+import { BuildStep } from '../steps';
 import { createBuildLog } from '../log';
-import { BuildPhase } from '../phases';
 import { runBuildCommand } from '../run';
 
 let project: string;
@@ -47,7 +47,7 @@ it.each([
   const log = await createBuildLog(project, 'test');
   try {
     await expect(
-      log.runBuildPhase(BuildPhase.CALCULATE_EXPO_UPDATES_RUNTIME_VERSION, phase =>
+      log.runStep(BuildStep.CALCULATE_RUNTIME, step =>
         runBuildCommand(
           {
             title: 'Computing Expo fingerprint',
@@ -62,7 +62,7 @@ it.each([
             cwd: project,
             env: process.env,
           },
-          phase,
+          step,
           []
         )
       )

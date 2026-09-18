@@ -144,7 +144,7 @@ func TestBuildLogsValidateScopeAndSize(t *testing.T) {
 	ctx := WithCliAuth(context.Background(), CliCredential{AppID: testBuildApp, KeyID: 7})
 	_, err := f.service.Start(ctx, testBuildApp, testBuildIdentifier, testBuildID, f.startInput())
 	require.NoError(t, err)
-	content := `{"logId":"output","time":"2026-09-09T10:00:00Z","level":30,"msg":"héllo"}` + "\n"
+	content := `{"buildStepId":"general","buildStepDisplayName":"Build","time":"2026-09-09T10:00:00Z","level":30,"msg":"héllo"}` + "\n"
 	require.NoError(t, f.service.AppendLogs(ctx, testBuildApp, testBuildIdentifier, testBuildID, 0, content))
 	require.Len(t, f.repo.logs, 1)
 	require.Error(t, f.service.AppendLogs(ctx, otherBuildID, testBuildIdentifier, testBuildID, int32(len(content)), content))

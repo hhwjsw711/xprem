@@ -222,7 +222,7 @@ func TestBuildRegistryLogRequests(t *testing.T) {
 	f := newRegistryFixture(t)
 	w := f.do(http.MethodPut, registryPath+"/start", startBody(time.Now().Add(-time.Minute)))
 	require.Equal(t, http.StatusOK, w.Code)
-	firstContent := `{"logId":"output","time":"2026-09-09T10:00:00Z","level":30,"msg":"héllo"}` + "\n"
+	firstContent := `{"buildStepId":"general","buildStepDisplayName":"Build","time":"2026-09-09T10:00:00Z","level":30,"msg":"héllo"}` + "\n"
 	firstBody, err := json.Marshal(map[string]any{"offset": 0, "content": firstContent})
 	require.NoError(t, err)
 	nextOffset := strconv.Itoa(len(firstContent))
@@ -254,7 +254,7 @@ func TestBuildRegistryLogRequests(t *testing.T) {
 	}
 	w = f.do(http.MethodGet, strings.Replace(path, registryApp, registryIdentifier, 1), "")
 	require.Equal(t, http.StatusNotFound, w.Code)
-	content := `{"logId":"step","time":"2026-09-09T10:00:00Z","level":30,"msg":"Gradle terminé","phase":"RUN_GRADLEW","buildStepId":"gradle","marker":"END_PHASE","result":"success","durationMs":12345}` + "\n"
+	content := `{"time":"2026-09-09T10:00:00Z","level":30,"msg":"Gradle terminé","buildStepDisplayName":"Run Gradle","buildStepId":"gradle","marker":"END_STEP","result":"success","durationMs":12345}` + "\n"
 	body, err := json.Marshal(map[string]any{"offset": len(firstContent), "content": content})
 	require.NoError(t, err)
 	w = f.do(http.MethodPost, registryPath+"/logs", string(body))

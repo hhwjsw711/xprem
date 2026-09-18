@@ -292,8 +292,8 @@ describe('Android orchestration', () => {
     const logs = await fs.readdir(path.join(project, 'build-artifacts/logs'));
     expect(logs).toHaveLength(1);
     const log = await fs.readFile(path.join(project, 'build-artifacts/logs', logs[0]), 'utf8');
-    expect(log).toContain('[RUN_GRADLEW]');
-    expect(log).toContain('[GRADLE_BUILD_PROFILE] Gradle Build — Task Execution Profile');
+    expect(log).toContain('[Building signed AAB]');
+    expect(log).toContain('[Gradle build profile] Gradle Build — Task Execution Profile');
     expect(log).toContain('1 task, total task time: 2.0s');
     expect(log).toContain('versionCode 42');
     expect(createLogUploader).not.toHaveBeenCalled();
@@ -374,19 +374,24 @@ describe('Android orchestration', () => {
       );
       if (!failure) {
         const streamed = sink.write.mock.calls.map(([event]) => event);
-        const profile = streamed.filter(event => event.phase === 'GRADLE_BUILD_PROFILE');
+        const profile = streamed.filter(
+          event => event.buildStepDisplayName === 'Gradle build profile'
+        );
         expect(profile[0]).toMatchObject({
-          marker: 'START_PHASE',
+          marker: 'START_STEP',
           buildStepDisplayName: 'Gradle build profile',
         });
-        expect(profile.at(-1)).toMatchObject({ marker: 'END_PHASE', result: 'success' });
+        expect(profile.at(-1)).toMatchObject({ marker: 'END_STEP', result: 'success' });
         expect(profile.map(event => event.msg).join('\n')).toContain('└─ bundleRelease');
-        const phases = streamed
-          .filter(event => event.marker === 'START_PHASE')
-          .map(event => event.phase);
+        const steps = streamed
+          .filter(event => event.marker === 'START_STEP')
+          .map(event => event.buildStepDisplayName);
         expect(
-          phases.slice(phases.indexOf('RUN_GRADLEW'), phases.indexOf('RUN_GRADLEW') + 3)
-        ).toEqual(['RUN_GRADLEW', 'GRADLE_BUILD_PROFILE', 'PREPARE_ARTIFACTS']);
+          steps.slice(
+            steps.indexOf('Building signed AAB'),
+            steps.indexOf('Building signed AAB') + 3
+          )
+        ).toEqual(['Building signed AAB', 'Gradle build profile', 'Prepare artifacts']);
       }
       expect(sink.close).toHaveBeenCalledOnce();
     }

@@ -1,6 +1,6 @@
 import { expect, it, vi } from 'vitest';
 
-import { PhaseLogger } from '../log';
+import { LogWriter } from '../log';
 import { runBuildCommand } from '../run';
 
 function command(script: string): Parameters<typeof runBuildCommand>[0] {
@@ -14,8 +14,8 @@ function command(script: string): Parameters<typeof runBuildCommand>[0] {
   };
 }
 
-function logger(): PhaseLogger {
-  return { write: vi.fn(), info: vi.fn(), warn: vi.fn(), markSkipped: vi.fn() };
+function logger(): LogWriter {
+  return { write: vi.fn(), info: vi.fn(), warn: vi.fn() };
 }
 
 it('stops a command that prints nothing, with the child processes it started', async () => {
