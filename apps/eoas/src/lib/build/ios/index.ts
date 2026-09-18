@@ -4,6 +4,7 @@ import fg from 'fast-glob';
 import fs from 'fs-extra';
 import path from 'path';
 
+import { BuildStep } from '../steps';
 import { assertSceneLifecycle } from './sceneLifecycle';
 import { InstalledSigning, IosCredentials, installSigning } from './signing';
 import { runPostInstallHook } from '../hooks';
@@ -14,7 +15,6 @@ import Log from '../../log';
 import { secretsToRedact } from '../errors';
 import { BuildLog, withBuildLog } from '../log';
 import { NativeBuild, NativeWorkspace, prepareNativeBuild, runNativeBuild } from '../native';
-import { BuildPhase } from '../phases';
 import { BuildInputs, BuildOptions, platformProfile } from '../prepare';
 import { runBuildCommand } from '../run';
 import { fetchCredentials } from '../server';
@@ -60,12 +60,12 @@ async function prepareBuild(
   let xcodeMajor = 0;
   const inputs = await prepareNativeBuild<IosCredentials>(project, options, buildLog, {
     platform: 'ios',
-    toolsTitle: 'Check local iOS tools',
-    credentialsTitle: 'Prepare iOS signing credentials',
-    resolveTools: async (_local, phaseLog, recordTool) => {
+    toolsTitle: BuildStep.CHECK_IOS_TOOLS,
+    credentialsTitle: BuildStep.PREPARE_IOS_CREDENTIALS,
+    resolveTools: async (_local, stepLog, recordTool) => {
       xcodeMajor = await resolveIosTools(
         message => {
-          phaseLog.info(message);
+          stepLog.info(message);
         },
         developerDir,
         recordTool
@@ -113,8 +113,8 @@ function iosBuild(build: IosBuild): NativeBuild {
       const { working, temporary, buildLog, secrets } = workspace;
       let signing: InstalledSigning | undefined;
       try {
-        const { scheme, installed, configured } = await buildLog.runBuildPhase(
-          BuildPhase.CONFIGURE_XCODE_PROJECT,
+        const { scheme, installed, configured } = await buildLog.runStep(
+          BuildStep.CONFIGURE_XCODE_PROJECT,
           async () => {
             await assertSceneLifecycle(working, build.xcodeMajor);
             const scheme = appScheme(working, build.ios.scheme);
@@ -130,7 +130,7 @@ function iosBuild(build: IosBuild): NativeBuild {
             return { scheme, installed: signing, configured };
           }
         );
-        await buildLog.runBuildPhase(BuildPhase.INSTALL_PODS, async phaseLog => {
+        await buildLog.runStep(BuildStep.INSTALL_PODS, async stepLog => {
           const developerDir = build.toolEnv.DEVELOPER_DIR;
           await runBuildCommand(
             {
@@ -143,82 +143,74 @@ function iosBuild(build: IosBuild): NativeBuild {
                 ? { ...build.env, SDKROOT: await macosSdkPath(developerDir) }
                 : build.env,
             },
-            phaseLog,
+            stepLog,
             secrets
           );
         });
         await runPostInstallHook(build, working, buildLog, secrets);
-        await buildLog.runBuildPhase(
-          BuildPhase.RUN_XCODEBUILD,
-          async phaseLog => {
-            const archive = path.join(temporary, 'app.xcarchive');
-            const exportOptions = path.join(temporary, 'exportOptions.plist');
-            await fs.writeFile(
-              exportOptions,
-              exportOptionsPlist(
-                build,
-                installed.profileUuid,
-                configured.iCloudContainerEnvironment
-              )
+        await buildLog.runStep(BuildStep.BUILD_IPA, async stepLog => {
+          const archive = path.join(temporary, 'app.xcarchive');
+          const exportOptions = path.join(temporary, 'exportOptions.plist');
+          await fs.writeFile(
+            exportOptions,
+            exportOptionsPlist(build, installed.profileUuid, configured.iCloudContainerEnvironment)
+          );
+          const [workspaceFile] = await fg('ios/*.xcworkspace', {
+            cwd: working,
+            absolute: true,
+            onlyDirectories: true,
+          });
+          if (!workspaceFile) {
+            throw new Error('No Xcode workspace was found in ios/ after installing pods.');
+          }
+          const rawOutput = buildLog.path.replace(/\.log$/, '.xcodebuild.log');
+          stepLog.info(`Complete Xcode output: ${rawOutput}`);
+          const { summarize, close } = xcodeOutputSummary(rawOutput, message => {
+            stepLog.warn(message);
+          });
+          const xcodebuild = (title: string, args: string[]): Promise<void> =>
+            runBuildCommand(
+              {
+                title,
+                command: 'xcodebuild',
+                args: ['-hideShellScriptEnvironment', ...args],
+                cwd: path.join(working, 'ios'),
+                env: build.env,
+                transform: summarize,
+              },
+              stepLog,
+              secrets
             );
-            const [workspaceFile] = await fg('ios/*.xcworkspace', {
-              cwd: working,
-              absolute: true,
-              onlyDirectories: true,
-            });
-            if (!workspaceFile) {
-              throw new Error('No Xcode workspace was found in ios/ after installing pods.');
-            }
-            const rawOutput = buildLog.path.replace(/\.log$/, '.xcodebuild.log');
-            phaseLog.info(`Complete Xcode output: ${rawOutput}`);
-            const { summarize, close } = xcodeOutputSummary(rawOutput, message => {
-              phaseLog.warn(message);
-            });
-            const xcodebuild = (title: string, args: string[]): Promise<void> =>
-              runBuildCommand(
-                {
-                  title,
-                  command: 'xcodebuild',
-                  args: ['-hideShellScriptEnvironment', ...args],
-                  cwd: path.join(working, 'ios'),
-                  env: build.env,
-                  transform: summarize,
-                },
-                phaseLog,
-                secrets
-              );
-            try {
-              await xcodebuild('Archiving the app', [
-                '-workspace',
-                workspaceFile,
-                '-scheme',
-                scheme,
-                '-configuration',
-                configuration,
-                '-destination',
-                'generic/platform=iOS',
-                '-archivePath',
-                archive,
-                '-derivedDataPath',
-                path.join(temporary, 'DerivedData'),
-                'archive',
-              ]);
-              await xcodebuild('Exporting the signed IPA', [
-                '-exportArchive',
-                '-archivePath',
-                archive,
-                '-exportPath',
-                path.join(temporary, 'export'),
-                '-exportOptionsPlist',
-                exportOptions,
-                `OTHER_CODE_SIGN_FLAGS=--keychain ${installed.keychain}`,
-              ]);
-            } finally {
-              await close();
-            }
-          },
-          'Building signed IPA'
-        );
+          try {
+            await xcodebuild('Archiving the app', [
+              '-workspace',
+              workspaceFile,
+              '-scheme',
+              scheme,
+              '-configuration',
+              configuration,
+              '-destination',
+              'generic/platform=iOS',
+              '-archivePath',
+              archive,
+              '-derivedDataPath',
+              path.join(temporary, 'DerivedData'),
+              'archive',
+            ]);
+            await xcodebuild('Exporting the signed IPA', [
+              '-exportArchive',
+              '-archivePath',
+              archive,
+              '-exportPath',
+              path.join(temporary, 'export'),
+              '-exportOptionsPlist',
+              exportOptions,
+              `OTHER_CODE_SIGN_FLAGS=--keychain ${installed.keychain}`,
+            ]);
+          } finally {
+            await close();
+          }
+        });
       } finally {
         signing?.remove();
       }

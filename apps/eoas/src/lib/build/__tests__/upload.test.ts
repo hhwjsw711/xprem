@@ -1,21 +1,18 @@
-import { randomUUID } from 'crypto';
 import { afterEach, expect, it, vi } from 'vitest';
 
 import { LogLine } from '../log';
-import { BuildPhase, BuildPhaseResult, LogMarker } from '../phases';
 import { request } from '../server';
+import { BuildStep, BuildStepResult, LogMarker } from '../steps';
 import { createLogUploader } from '../upload';
 
 vi.mock('../server', () => ({ request: vi.fn() }));
 
 const event = (msg: string): LogLine => ({
-  logId: randomUUID(),
   time: new Date().toISOString(),
   level: 30,
   msg,
-  phase: BuildPhase.RUN_GRADLEW,
   buildStepId: 'gradle-1',
-  buildStepDisplayName: 'Run Gradle',
+  buildStepDisplayName: BuildStep.BUILD_APK,
 });
 
 afterEach(() => {
@@ -45,10 +42,10 @@ it('streams ordered UTF-8 batches, redacts before splitting, and flushes on clos
   expect(records.map(record => record.msg).join('')).toBe(
     line.replace('secret-value', '[REDACTED]') + 'last line'
   );
-  expect(new Set(records.map(record => record.logId)).size).toBe(records.length);
   expect(
     records.every(
-      record => record.phase === BuildPhase.RUN_GRADLEW && record.buildStepId === 'gradle-1'
+      record =>
+        record.buildStepDisplayName === BuildStep.BUILD_APK && record.buildStepId === 'gradle-1'
     )
   ).toBe(true);
   let offset = 0;
@@ -129,7 +126,7 @@ it('caps remote log storage while leaving the local logger free to continue', as
   expect(warn).toHaveBeenCalledTimes(1);
 });
 
-it('preserves phase markers and strips terminal escapes before sending JSON', async () => {
+it('preserves step markers and strips terminal escapes before sending JSON', async () => {
   const records: LogLine[] = [];
   vi.mocked(request).mockImplementation(async (_url, options) => {
     const batch = options!.body as { offset: number; content: string };
@@ -142,16 +139,16 @@ it('preserves phase markers and strips terminal escapes before sending JSON', as
     return { nextOffset: batch.offset + Buffer.byteLength(batch.content) };
   });
   const stream = createLogUploader('/build/id', 'build-id', [], vi.fn());
-  stream.write({ ...event('Start phase'), marker: LogMarker.START_PHASE });
+  stream.write({ ...event('Start step'), marker: LogMarker.START_STEP });
   stream.write(event('\x1b[33mApplying plugin\x1b[0m'));
   stream.write({
-    ...event('End phase'),
-    marker: LogMarker.END_PHASE,
-    result: BuildPhaseResult.SUCCESS,
+    ...event('End step'),
+    marker: LogMarker.END_STEP,
+    result: BuildStepResult.SUCCESS,
     durationMs: 3500,
   });
   await stream.close();
-  expect(records[0].marker).toBe('START_PHASE');
+  expect(records[0].marker).toBe('START_STEP');
   expect(records[1].msg).toBe('Applying plugin');
-  expect(records[2]).toMatchObject({ marker: 'END_PHASE', result: 'success', durationMs: 3500 });
+  expect(records[2]).toMatchObject({ marker: 'END_STEP', result: 'success', durationMs: 3500 });
 });

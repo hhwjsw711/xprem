@@ -2,7 +2,7 @@ import fg from 'fast-glob';
 import { XMLParser } from 'fast-xml-parser';
 import { readFile } from 'fs/promises';
 
-import { PhaseLogger } from '../log';
+import { StepLogger } from '../log';
 
 interface GradleTaskProfile {
   path: string;
@@ -10,7 +10,7 @@ interface GradleTaskProfile {
   result: string;
 }
 
-export async function logGradleProfile(androidDirectory: string, log: PhaseLogger): Promise<void> {
+export async function logGradleProfile(androidDirectory: string, log: StepLogger): Promise<void> {
   try {
     // copyProject excludes android/build, so reports belong to this temporary build.
     const reports = await fg('build/reports/profile/profile-*.html', {

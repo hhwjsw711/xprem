@@ -1,13 +1,13 @@
+import stripAnsi from 'strip-ansi';
+
 export interface BuildLogEvent {
-  logId: string;
   time: string;
   level: number;
   msg: string;
-  phase?: string;
-  buildStepId?: string;
-  buildStepDisplayName?: string;
-  marker?: 'START_PHASE' | 'END_PHASE';
-  result?: 'success' | 'failed' | 'warning' | 'skipped' | 'unknown';
+  buildStepId: string;
+  buildStepDisplayName: string;
+  marker?: 'START_STEP' | 'END_STEP';
+  result?: 'success' | 'failed' | 'warning' | 'skipped';
   durationMs?: number;
 }
 
@@ -30,11 +30,12 @@ export function appendBuildLogs(groups: Map<string, BuildLogGroup>, chunks: Buil
   for (const chunk of chunks) {
     for (const line of chunk.content.trimEnd().split('\n')) {
       const event: BuildLogEvent = JSON.parse(line);
-      const id = event.buildStepId ?? event.buildStepDisplayName ?? event.phase ?? 'general';
-      const group = { ...(groups.get(id) ?? { id, label: 'Build', output: '' }) };
-      group.label = event.buildStepDisplayName ?? event.phase ?? group.label;
-      if (event.marker === 'START_PHASE') group.startedAt = Date.parse(event.time);
-      else if (event.marker === 'END_PHASE') {
+      const id = event.buildStepId;
+      const group = {
+        ...(groups.get(id) ?? { id, label: event.buildStepDisplayName, output: '' }),
+      };
+      if (event.marker === 'START_STEP') group.startedAt = Date.parse(event.time);
+      else if (event.marker === 'END_STEP') {
         group.result = event.result;
         group.durationMs = event.durationMs;
       } else group.output += `${event.msg}\n`;
@@ -46,4 +47,3 @@ export function appendBuildLogs(groups: Map<string, BuildLogGroup>, chunks: Buil
 export function buildLogsText(groups: Iterable<BuildLogGroup>): string {
   return [...groups].map(group => `${group.label}\n${stripAnsi(group.output)}`).join('\n');
 }
-import stripAnsi from 'strip-ansi';

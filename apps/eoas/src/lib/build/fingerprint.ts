@@ -4,7 +4,7 @@ import path from 'path';
 import resolveFrom from 'resolve-from';
 
 import { Workflow } from '../workflow';
-import { PhaseLogger } from './log';
+import { LogWriter } from './log';
 import { BuildInputs } from './prepare';
 import { runBuildCommand } from './run';
 import { BuildPlatform } from './server';
@@ -16,7 +16,7 @@ export async function fingerprintBuild(
   working: string,
   temporary: string,
   expo: ExpoConfig,
-  buildLog: PhaseLogger,
+  stepLog: LogWriter,
   secrets: string[]
 ): Promise<{ fingerprint: string; expoSdk: string; runtimeVersion?: string }> {
   const fingerprintModule =
@@ -36,7 +36,7 @@ export async function fingerprintBuild(
       cwd: working,
       env: build.env,
     },
-    buildLog,
+    stepLog,
     secrets
   );
   const fingerprint = await fs.readJson(output);

@@ -2,7 +2,7 @@ import spawnAsync from '@expo/spawn-async';
 import { ChildProcess } from 'child_process';
 
 import { formatBuildError } from './errors';
-import { PhaseLogger } from './log';
+import { LogWriter } from './log';
 import { streamBuildOutput } from './output';
 
 export interface BuildCommand {
@@ -37,7 +37,7 @@ export async function terminateBuildCommand(): Promise<void> {
 
 export async function runBuildCommand(
   { title, command, args, cwd, env, transform, silence }: BuildCommand,
-  log: PhaseLogger,
+  log: LogWriter,
   secrets: string[]
 ): Promise<void> {
   let stopped = false;

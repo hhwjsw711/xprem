@@ -3,6 +3,7 @@ import fg from 'fast-glob';
 import fs from 'fs-extra';
 import path from 'path';
 
+import { BuildStep } from '../steps';
 import { logGradleProfile } from './gradleProfile';
 import { runPostInstallHook } from '../hooks';
 import { AndroidToolsOptions, configureAndroidSdk, resolveAndroidTools } from './tools';
@@ -11,7 +12,6 @@ import Log from '../../log';
 import { secretsToRedact } from '../errors';
 import { BuildLog, withBuildLog } from '../log';
 import { NativeBuild, prepareNativeBuild, runNativeBuild } from '../native';
-import { BuildPhase } from '../phases';
 import { BuildInputs, BuildOptions, platformProfile } from '../prepare';
 import { BuildCommand, runBuildCommand } from '../run';
 import { fetchCredentials } from '../server';
@@ -62,20 +62,20 @@ async function prepareBuild(
 ): Promise<AndroidBuild> {
   const inputs = await prepareNativeBuild<AndroidCredentials>(project, options, buildLog, {
     platform: 'android',
-    toolsTitle: 'Check local Android tools',
-    credentialsTitle: 'Fetch Android signing credentials',
-    resolveTools: async (local, phaseLog, recordTool) => {
+    toolsTitle: BuildStep.CHECK_ANDROID_TOOLS,
+    credentialsTitle: BuildStep.FETCH_ANDROID_CREDENTIALS,
+    resolveTools: async (local, stepLog, recordTool) => {
       const tools = await resolveAndroidTools(
         project,
         options,
         { ...process.env, ...local },
         message => {
-          phaseLog.info(message);
+          stepLog.info(message);
         },
         recordTool
       );
-      phaseLog.info(`Android SDK: ${tools.ANDROID_HOME}`);
-      phaseLog.info(`JAVA_HOME: ${tools.JAVA_HOME}`);
+      stepLog.info(`Android SDK: ${tools.ANDROID_HOME}`);
+      stepLog.info(`JAVA_HOME: ${tools.JAVA_HOME}`);
       return tools;
     },
     describe: profile => {
@@ -112,30 +112,25 @@ function androidBuild(build: AndroidBuild): NativeBuild {
     },
     compile: async ({ working, temporary, buildNumber, buildLog, secrets }) => {
       await runPostInstallHook(build, working, buildLog, secrets);
-      const signing = await buildLog.runBuildPhase(
-        BuildPhase.PREPARE_CREDENTIALS,
-        async () => {
-          const keystore = await writeKeystore(build.credentials, temporary);
-          await configureAndroidSdk(working, build.toolEnv.ANDROID_HOME);
-          const signingFile = await configureSigning(
-            build,
-            working,
-            temporary,
-            keystore,
-            buildNumber
-          );
-          await prepareGradlew(working);
-          return signingFile;
-        },
-        'Configure Android signing'
+      const signing = await buildLog.runStep(BuildStep.CONFIGURE_ANDROID_SIGNING, async () => {
+        const keystore = await writeKeystore(build.credentials, temporary);
+        await configureAndroidSdk(working, build.toolEnv.ANDROID_HOME);
+        const signingFile = await configureSigning(
+          build,
+          working,
+          temporary,
+          keystore,
+          buildNumber
+        );
+        await prepareGradlew(working);
+        return signingFile;
+      });
+      await buildLog.runStep(
+        artifact === 'apk' ? BuildStep.BUILD_APK : BuildStep.BUILD_AAB,
+        stepLog => runBuildCommand(gradleCommand(build, working, signing), stepLog, secrets)
       );
-      await buildLog.runBuildPhase(
-        BuildPhase.RUN_GRADLEW,
-        phaseLog => runBuildCommand(gradleCommand(build, working, signing), phaseLog, secrets),
-        `Building signed ${artifact.toUpperCase()}`
-      );
-      await buildLog.runBuildPhase(BuildPhase.GRADLE_BUILD_PROFILE, phaseLog =>
-        logGradleProfile(path.join(working, 'android'), phaseLog)
+      await buildLog.runStep(BuildStep.GRADLE_BUILD_PROFILE, stepLog =>
+        logGradleProfile(path.join(working, 'android'), stepLog)
       );
     },
     findArtifact: async ({ working }) => {

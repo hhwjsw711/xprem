@@ -25,7 +25,7 @@ const durationLabel = (duration: number) => {
   return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 };
 
-const LogPhase = ({
+const LogStep = ({
   group,
   running,
   now,
@@ -41,7 +41,7 @@ const LogPhase = ({
   const follow = useRef(true);
   const output = useMemo(() => stripAnsi(group.output), [group.output]);
   const active = group.startedAt !== undefined && !group.result && running;
-  const open = expanded ?? (active || group.result === 'failed' || group.id === 'legacy');
+  const open = expanded ?? (active || group.result === 'failed');
   const duration = group.durationMs ?? (active ? Math.max(0, now - group.startedAt!) : undefined);
   const status = active
     ? 'Running'
@@ -84,7 +84,7 @@ const LogPhase = ({
           type="button"
           className="flex min-w-0 flex-1 items-center gap-3 py-4 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           aria-expanded={open}
-          aria-controls={`phase-${group.id}`}
+          aria-controls={`step-${group.id}`}
           onClick={() => setExpanded(!open)}>
           <ChevronRight
             className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${open ? 'rotate-90' : ''}`}
@@ -120,7 +120,7 @@ const LogPhase = ({
         </Button>
       </div>
       {open && (
-        <div id={`phase-${group.id}`} className="border-t">
+        <div id={`step-${group.id}`} className="border-t">
           {output.length > PREVIEW_CHARACTERS && (
             <p className="px-4 py-2 text-xs text-muted-foreground">
               Showing the latest output. Copy or download to read the full log.
@@ -169,7 +169,7 @@ export const BuildLogsCard = ({ build }: { build: BuildRecord }) => {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
     let cursor = 0;
-    const phases = new Map<string, BuildLogGroup>();
+    const logGroups = new Map<string, BuildLogGroup>();
     const deadline = running ? Infinity : Date.now() + 15000;
     setGroups([]);
     setLoading(true);
@@ -178,9 +178,9 @@ export const BuildLogsCard = ({ build }: { build: BuildRecord }) => {
       try {
         const page = await api.getBuildLogs(build.id, cursor, controller.signal);
         if (controller.signal.aborted) return;
-        appendBuildLogs(phases, page.chunks);
+        appendBuildLogs(logGroups, page.chunks);
         cursor = page.nextOffset;
-        if (page.chunks.length) setGroups([...phases.values()]);
+        if (page.chunks.length) setGroups([...logGroups.values()]);
         setError('');
         if (page.chunks.length === 32) delay = 0;
       } catch {
@@ -202,16 +202,16 @@ export const BuildLogsCard = ({ build }: { build: BuildRecord }) => {
   const download = async () => {
     setDownloading(true);
     try {
-      const phases = new Map<string, BuildLogGroup>();
+      const logGroups = new Map<string, BuildLogGroup>();
       let cursor = 0;
       for (;;) {
         const page = await api.getBuildLogs(build.id, cursor);
-        appendBuildLogs(phases, page.chunks);
+        appendBuildLogs(logGroups, page.chunks);
         cursor = page.nextOffset;
         if (page.chunks.length < 32) break;
       }
       const url = URL.createObjectURL(
-        new Blob([buildLogsText(phases.values())], { type: 'text/plain;charset=utf-8' })
+        new Blob([buildLogsText(logGroups.values())], { type: 'text/plain;charset=utf-8' })
       );
       const link = document.createElement('a');
       link.href = url;
@@ -253,7 +253,7 @@ export const BuildLogsCard = ({ build }: { build: BuildRecord }) => {
       {groups.length ? (
         <div className="divide-y">
           {groups.map(group => (
-            <LogPhase key={group.id} group={group} running={running} now={now} />
+            <LogStep key={group.id} group={group} running={running} now={now} />
           ))}
         </div>
       ) : (

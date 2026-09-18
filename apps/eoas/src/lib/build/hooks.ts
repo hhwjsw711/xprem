@@ -3,9 +3,9 @@ import fs from 'fs-extra';
 import path from 'path';
 
 import { BuildLog } from './log';
-import { BuildPhase } from './phases';
 import { BuildInputs } from './prepare';
 import { runBuildCommand } from './run';
+import { BuildStep } from './steps';
 
 const POST_INSTALL = 'eoas-build-post-install';
 
@@ -17,16 +17,16 @@ export async function runPostInstallHook(
   buildLog: BuildLog,
   secrets: string[]
 ): Promise<void> {
-  await buildLog.runBuildPhase(BuildPhase.POST_INSTALL_HOOK, async phaseLog => {
+  await buildLog.runStep(BuildStep.POST_INSTALL_HOOK, async stepLog => {
     const scripts: Record<string, string> =
       (await fs.readJson(path.join(working, 'package.json')).catch(() => ({}))).scripts ?? {};
     if (!scripts[POST_INSTALL]) {
       if (scripts['eas-build-post-install']) {
-        phaseLog.info(
+        stepLog.info(
           `package.json has an "eas-build-post-install" script. Name it "${POST_INSTALL}" to run it in this build.`
         );
       }
-      phaseLog.markSkipped();
+      stepLog.markSkipped();
       return;
     }
     await runBuildCommand(
@@ -37,7 +37,7 @@ export async function runPostInstallHook(
         cwd: working,
         env: build.env,
       },
-      phaseLog,
+      stepLog,
       secrets
     );
   });

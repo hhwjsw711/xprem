@@ -13,12 +13,14 @@ it('keeps complete ordered logs in separate files and flushes before closing', a
     expect(first.path).not.toBe(second.path);
     const lines = Array.from({ length: 3000 }, (_, index) => `Task ${index}`);
     for (const line of lines) {
-      first.write(line);
+      first.general.write(line);
     }
-    second.write('another build');
+    second.general.write('another build');
     await Promise.all([first.close(), second.close()]);
-    expect(await fs.readFile(first.path, 'utf8')).toBe(`${lines.join('\n')}\n`);
-    expect(await fs.readFile(second.path, 'utf8')).toBe('another build\n');
+    expect(await fs.readFile(first.path, 'utf8')).toBe(
+      `${lines.map(line => `[Build] ${line}`).join('\n')}\n`
+    );
+    expect(await fs.readFile(second.path, 'utf8')).toBe('[Build] another build\n');
     expect((await fs.stat(first.path)).mode & 0o777).toBe(0o600);
   } finally {
     await fs.remove(project);
