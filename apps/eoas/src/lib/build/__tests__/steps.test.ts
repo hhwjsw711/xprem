@@ -112,3 +112,51 @@ it('keeps general messages in one named step across buffered and streamed output
     await fs.remove(directory);
   }
 });
+
+it.each([false, true])(
+  'rejects overlapping steps until the active work settles (abort: %s)',
+  async abort => {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'eoas-steps-'));
+    const log = await createBuildLog(directory, 'test');
+    const events: LogLine[] = [];
+    log.streamTo({ write: event => events.push(event), close: async () => {} });
+    let complete!: () => void;
+    const pending = new Promise<void>(resolve => {
+      complete = resolve;
+    });
+    const active = log.runStep(BuildStep.BUILD_APK, () => pending);
+    const overlappingWork = vi.fn();
+    try {
+      await expect(log.runStep(BuildStep.BUILD_AAB, overlappingWork)).rejects.toThrow(
+        'another step'
+      );
+      if (abort) {
+        log.abort();
+        log.abort();
+        await expect(log.runStep(BuildStep.BUILD_AAB, overlappingWork)).rejects.toThrow(
+          'another step'
+        );
+      }
+      expect(overlappingWork).not.toHaveBeenCalled();
+      complete();
+      await active;
+      await log.runStep(BuildStep.BUILD_IPA, async () => {});
+      const starts = events.filter(event => event.marker === LogMarker.START_STEP);
+      const ends = events.filter(event => event.marker === LogMarker.END_STEP);
+      expect(starts.map(event => event.buildStepDisplayName)).toEqual([
+        BuildStep.BUILD_APK,
+        BuildStep.BUILD_IPA,
+      ]);
+      expect(ends.map(event => event.result)).toEqual([
+        abort ? BuildStepResult.FAIL : BuildStepResult.SUCCESS,
+        BuildStepResult.SUCCESS,
+      ]);
+      expect(ends.map(event => event.buildStepId)).toEqual(starts.map(event => event.buildStepId));
+    } finally {
+      complete();
+      await active;
+      await log.close();
+      await fs.remove(directory);
+    }
+  }
+);

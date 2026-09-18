@@ -9,7 +9,6 @@ import {
   startBuildRecord,
   uploadBuildArtifact,
 } from './artifacts';
-import { BuildStep } from './steps';
 import { secretsToRedact } from './errors';
 import { fingerprintBuild } from './fingerprint';
 import { BuildLog, LogWriter } from './log';
@@ -27,6 +26,7 @@ import {
 } from './prepare';
 import { runBuildCommand } from './run';
 import { BuildPlatform, allocateBuildNumber } from './server';
+import { BuildStep } from './steps';
 import { createLogUploader } from './upload';
 import {
   copyProject,

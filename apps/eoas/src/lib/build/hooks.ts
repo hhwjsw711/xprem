@@ -2,10 +2,10 @@ import { resolvePackageManager } from '@expo/package-manager';
 import fs from 'fs-extra';
 import path from 'path';
 
-import { BuildStep } from './steps';
 import { BuildLog } from './log';
 import { BuildInputs } from './prepare';
 import { runBuildCommand } from './run';
+import { BuildStep } from './steps';
 
 const POST_INSTALL = 'eoas-build-post-install';
 

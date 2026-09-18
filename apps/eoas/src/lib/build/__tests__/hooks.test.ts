@@ -3,10 +3,10 @@ import os from 'os';
 import path from 'path';
 import { afterEach, expect, it, vi } from 'vitest';
 
-import { BuildStep } from '../steps';
 import { runPostInstallHook } from '../hooks';
 import { BuildLog, StepLogger } from '../log';
 import { BuildInputs } from '../prepare';
+import { BuildStep } from '../steps';
 
 const directories: string[] = [];
 afterEach(async () => {

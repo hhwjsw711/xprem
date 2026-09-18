@@ -4,11 +4,11 @@ import originalFetch from 'node-fetch';
 import path from 'path';
 import { validate as isUuid } from 'uuid';
 
-import { BuildStep } from './steps';
 import { BuildLog, LogWriter } from './log';
 import { BuildMachine, describeMachine } from './machine';
 import { BuildInputs } from './prepare';
 import { BuildServerError, request } from './server';
+import { BuildStep } from './steps';
 import { assertSafeUploadUrl } from '../assets';
 import { digestFile } from '../crypto';
 import GitClient from '../vcs/clients/git';

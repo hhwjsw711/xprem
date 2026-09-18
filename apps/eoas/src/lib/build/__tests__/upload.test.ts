@@ -1,8 +1,8 @@
 import { afterEach, expect, it, vi } from 'vitest';
 
 import { LogLine } from '../log';
-import { BuildStep, BuildStepResult, LogMarker } from '../steps';
 import { request } from '../server';
+import { BuildStep, BuildStepResult, LogMarker } from '../steps';
 import { createLogUploader } from '../upload';
 
 vi.mock('../server', () => ({ request: vi.fn() }));

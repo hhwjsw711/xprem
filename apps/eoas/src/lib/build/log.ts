@@ -44,6 +44,7 @@ export interface BuildLog {
   general: LogWriter;
   maskSecrets(secrets: string[]): void;
   streamTo(uploader: LogUploader): void;
+  // Steps run sequentially; overlapping calls reject until the active work settles.
   runStep<T>(displayName: BuildStep, work: (stepLog: StepLogger) => Promise<T>): Promise<T>;
   abort(): void;
   close(): Promise<void>;
@@ -127,6 +128,9 @@ export async function createBuildLog(
       heldForUpload.length = 0;
     },
     async runStep(displayName, work) {
+      if (failCurrentStep) {
+        throw new Error('Cannot start a build step while another step is running.');
+      }
       const stepFields: StepIdentity = {
         buildStepId: randomUUID(),
         buildStepDisplayName: displayName,
@@ -149,7 +153,6 @@ export async function createBuildLog(
           return;
         }
         finished = true;
-        failCurrentStep = undefined;
         addLine(stepFields, `End step: ${displayName}`, {
           marker: LogMarker.END_STEP,
           result,
@@ -166,9 +169,9 @@ export async function createBuildLog(
       failCurrentStep = (): void => {
         finishStep(BuildStepResult.FAIL);
       };
-      addLine(stepFields, `Start step: ${displayName}`, { marker: LogMarker.START_STEP });
-      Log.log(displayName);
       try {
+        addLine(stepFields, `Start step: ${displayName}`, { marker: LogMarker.START_STEP });
+        Log.log(displayName);
         const value = await work(stepLog);
         finishStep(
           skipped
@@ -184,6 +187,8 @@ export async function createBuildLog(
         });
         finishStep(BuildStepResult.FAIL);
         throw error;
+      } finally {
+        failCurrentStep = undefined;
       }
     },
     abort() {

@@ -3,9 +3,9 @@ import os from 'os';
 import path from 'path';
 import { afterEach, beforeEach, expect, it } from 'vitest';
 
-import { BuildStep } from '../steps';
 import { createBuildLog } from '../log';
 import { runBuildCommand } from '../run';
+import { BuildStep } from '../steps';
 
 let project: string;
 let fingerprintModule: string;
