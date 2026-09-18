@@ -346,6 +346,7 @@ export type BuildMetadata = {
   gitMessage?: string;
   gitDirty?: boolean;
   machine?: BuildMachine;
+  clientIp?: string;
   startedAt: string;
   finishedAt?: string;
   durationMs?: number;

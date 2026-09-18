@@ -159,26 +159,3 @@ type Event struct {
 // ee/audit's Record method value in. Implementations must be best-effort:
 // recording never fails the caller's request.
 type RecordFunc func(ctx context.Context, event Event)
-
-// RequestMeta is the network context of the request an event was emitted
-// from. It rides the request context so services can emit events without
-// taking *http.Request.
-type RequestMeta struct {
-	IP        string
-	UserAgent string
-}
-
-type requestMetaKey struct{}
-
-// WithRequestMeta stamps the network context; the HTTP middleware doing it
-// for every request lives in internal/middleware.
-func WithRequestMeta(ctx context.Context, meta RequestMeta) context.Context {
-	return context.WithValue(ctx, requestMetaKey{}, meta)
-}
-
-// MetaFromContext returns the zero RequestMeta outside a request (jobs,
-// tests): events then simply carry no network context.
-func MetaFromContext(ctx context.Context) RequestMeta {
-	meta, _ := ctx.Value(requestMetaKey{}).(RequestMeta)
-	return meta
-}

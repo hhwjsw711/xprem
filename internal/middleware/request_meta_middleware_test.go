@@ -5,15 +5,15 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"xprem/internal/auditlog"
+	"xprem/internal/requestmeta"
 
 	"github.com/stretchr/testify/require"
 )
 
 func TestRequestMetaMiddlewareStampsContext(t *testing.T) {
-	var seen auditlog.RequestMeta
+	var seen requestmeta.Metadata
 	handler := RequestMetaMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		seen = auditlog.MetaFromContext(r.Context())
+		seen = requestmeta.FromContext(r.Context())
 	}))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/settings", nil)
@@ -27,5 +27,5 @@ func TestRequestMetaMiddlewareStampsContext(t *testing.T) {
 
 func TestMetaFromContextOutsideARequest(t *testing.T) {
 	// Jobs and tests emit without a request: no network context, no panic.
-	require.Zero(t, auditlog.MetaFromContext(context.Background()))
+	require.Zero(t, requestmeta.FromContext(context.Background()))
 }

@@ -8,6 +8,7 @@ import (
 	"context"
 	"testing"
 	"xprem/internal/auditlog"
+	"xprem/internal/requestmeta"
 
 	"github.com/stretchr/testify/require"
 )
@@ -15,8 +16,8 @@ import (
 func TestRecordFillsRequestMetaFromContext(t *testing.T) {
 	repo := &fakeAuditRepo{}
 	service := enabledService(repo)
-	ctx := auditlog.WithRequestMeta(context.Background(),
-		auditlog.RequestMeta{IP: "198.51.100.3", UserAgent: "cli/2.0"})
+	ctx := requestmeta.WithContext(context.Background(),
+		requestmeta.Metadata{IP: "198.51.100.3", UserAgent: "cli/2.0"})
 
 	service.Record(ctx, Event{Action: auditlog.ActionUserLogin})
 	// An event that already carries its own network facts keeps them.

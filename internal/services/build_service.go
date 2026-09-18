@@ -18,6 +18,7 @@ import (
 	"unicode/utf8"
 	"xprem/config"
 	"xprem/internal/bucket"
+	"xprem/internal/requestmeta"
 	"xprem/internal/store"
 	"xprem/internal/types"
 	"xprem/internal/validation"
@@ -227,6 +228,7 @@ func withArtifact(current, declared types.BuildRecord) *types.BuildRecord {
 	next.Status = types.BuildStatusUploading
 	next.Size, next.SHA256 = declared.Size, declared.SHA256
 	next.Metadata = declared.Metadata
+	next.Metadata.ClientIP = current.Metadata.ClientIP
 	return &next
 }
 
@@ -272,6 +274,7 @@ func (s *BuildService) Start(ctx context.Context, appID, identifierID, id string
 	m := input.Metadata
 	record.Status = types.BuildStatusBuilding
 	record.Metadata = types.BuildMetadata{Profile: m.Profile, Mode: m.Mode, Distribution: m.Distribution, Environment: m.Environment, Channel: m.Channel, CLIVersion: m.CLIVersion, GitCommit: m.GitCommit, GitMessage: m.GitMessage, GitDirty: m.GitDirty, Machine: m.Machine, StartedAt: m.StartedAt}
+	record.Metadata.ClientIP = requestmeta.FromContext(ctx).IP
 	existing, _, err := s.repo.Create(ctx, *record)
 	if err != nil {
 		return nil, err
@@ -292,6 +295,7 @@ func (s *BuildService) RegisterArtifact(ctx context.Context, appID, identifierID
 		return nil, err
 	}
 	record.Status, record.Size, record.SHA256, record.Metadata = types.BuildStatusUploading, input.Size, input.SHA256, input.Metadata
+	record.Metadata.ClientIP = requestmeta.FromContext(ctx).IP
 	existing, created, err := s.repo.Create(ctx, *record)
 	if err != nil {
 		return nil, err

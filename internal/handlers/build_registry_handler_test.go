@@ -18,6 +18,8 @@ import (
 	"testing"
 	"time"
 	"xprem/internal/bucket"
+	"xprem/internal/helpers"
+	"xprem/internal/requestmeta"
 	"xprem/internal/services"
 	"xprem/internal/store"
 	"xprem/internal/types"
@@ -179,6 +181,9 @@ func newRegistryFixture(t *testing.T) *registryFixture {
 	router := mux.NewRouter()
 	authorized := func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
+			if ip := helpers.ClientIP(r); ip.IsValid() {
+				r = r.WithContext(requestmeta.WithContext(r.Context(), requestmeta.Metadata{IP: ip.String()}))
+			}
 			next(w, r.WithContext(services.WithBuildIdentifier(services.WithCliAuth(r.Context(), services.CliCredential{AppID: registryApp, KeyID: 42, KeyName: "ci"}), registryIdentifier)))
 		}
 	}
@@ -286,6 +291,40 @@ func registerBody(content []byte, startedAt time.Time) string {
 		"version": "1.0.0", "buildNumber": "42", "fingerprint": strings.Repeat("a", 64), "finishedAt": startedAt.Add(4 * time.Minute), "durationMs": 1,
 	}})
 	return string(body)
+}
+
+func TestBuildRegistryRecordsInitialClientIP(t *testing.T) {
+	for _, startFirst := range []bool{true, false} {
+		t.Run(strconv.FormatBool(startFirst), func(t *testing.T) {
+			f := newRegistryFixture(t)
+			t.Setenv("TRUST_PROXY_HEADERS", "false")
+			startedAt := time.Now().Add(-5 * time.Minute).UTC().Truncate(time.Microsecond)
+			request := func(path, body, address string) *httptest.ResponseRecorder {
+				req := httptest.NewRequest(http.MethodPut, path, strings.NewReader(body))
+				req.RemoteAddr = address
+				req.Header.Set("X-Forwarded-For", "203.0.113.99")
+				w := httptest.NewRecorder()
+				f.router.ServeHTTP(w, req)
+				require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+				return w
+			}
+			if startFirst {
+				first := request(registryPath+"/start", startBody(startedAt), "192.0.2.10:1234")
+				require.Contains(t, first.Body.String(), `"clientIp":"192.0.2.10"`)
+				request(registryPath+"/start", startBody(startedAt), "[2001:db8::20]:1234")
+			}
+			body := strings.Replace(registerBody([]byte("apk"), startedAt), `"metadata":{`, `"metadata":{"clientIp":"203.0.113.99",`, 1)
+			request(registryPath, body, "[2001:db8::20]:1234")
+			request(registryPath, body, "192.0.2.30:1234")
+			wantIP := "2001:db8::20"
+			if startFirst {
+				wantIP = "192.0.2.10"
+			}
+			w := f.do(http.MethodGet, "/api/app/"+registryApp+"/builds/"+registryBuild, "")
+			require.Equal(t, http.StatusOK, w.Code)
+			require.Contains(t, w.Body.String(), `"clientIp":"`+wantIP+`"`)
+		})
+	}
 }
 
 func TestBuildRegistryStartAndFail(t *testing.T) {

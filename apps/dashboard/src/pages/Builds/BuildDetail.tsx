@@ -360,27 +360,28 @@ export const BuildDetail = () => {
             )}
           </DetailSection>
 
-          {metadata.machine && (
+          {(metadata.machine || metadata.clientIp) && (
             <DetailSection title="Machine">
-              {metadata.machine.hostname && (
+              {metadata.clientIp && <DetailRow label="IP address">{metadata.clientIp}</DetailRow>}
+              {metadata.machine?.hostname && (
                 <DetailRow label="Name">
                   <span className="truncate" title={metadata.machine.hostname}>
                     {metadata.machine.hostname}
                   </span>
                 </DetailRow>
               )}
-              {metadata.machine.os && (
+              {metadata.machine?.os && (
                 <DetailRow label="System">
                   {[metadata.machine.os, metadata.machine.arch].filter(Boolean).join(' · ')}
                 </DetailRow>
               )}
-              {metadata.machine.node && <DetailRow label="Node">{metadata.machine.node}</DetailRow>}
-              {Object.entries(metadata.machine.tools ?? {}).map(([tool, version]) => (
+              {metadata.machine?.node && <DetailRow label="Node">{metadata.machine.node}</DetailRow>}
+              {Object.entries(metadata.machine?.tools ?? {}).map(([tool, version]) => (
                 <DetailRow key={tool} label={TOOL_LABELS[tool] ?? tool}>
                   {version}
                 </DetailRow>
               ))}
-              {metadata.machine.ci && (
+              {metadata.machine?.ci && (
                 <DetailRow label="CI">
                   {metadata.machine.ciRunUrl ? (
                     <a
