@@ -19,7 +19,10 @@ import (
 // fail because UnwrapBucket expects a concrete *LocalBucket/*S3Bucket/
 // *GCSBucket, but the migration's up() bails out before unwrapping when
 // EXPO_APP_ID is unset, which is exactly what we want to prove.
-type unreachableBucket struct{ t *testing.T }
+type unreachableBucket struct {
+	bucket.BuildCacheStorage
+	t *testing.T
+}
 
 func (u unreachableBucket) GetBranches(string) ([]string, error) {
 	u.t.Fatal("migration should have skipped; GetBranches should not be called")

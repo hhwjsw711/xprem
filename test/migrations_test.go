@@ -11,6 +11,7 @@ import (
 )
 
 type dummyMigrationsBucket struct {
+	bucket.BuildCacheStorage
 	migrationsHistory []string
 	actionsRecorded   []string
 }

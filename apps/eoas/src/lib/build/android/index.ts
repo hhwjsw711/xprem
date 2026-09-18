@@ -3,6 +3,7 @@ import fg from 'fast-glob';
 import fs from 'fs-extra';
 import path from 'path';
 
+import { withAndroidCache } from './cache';
 import { BuildStep } from '../steps';
 import { logGradleProfile } from './gradleProfile';
 import { runPostInstallHook } from '../hooks';
@@ -127,7 +128,13 @@ function androidBuild(build: AndroidBuild): NativeBuild {
       });
       await buildLog.runStep(
         artifact === 'apk' ? BuildStep.BUILD_APK : BuildStep.BUILD_AAB,
-        stepLog => runBuildCommand(gradleCommand(build, working, signing), stepLog, secrets)
+        stepLog =>
+          withAndroidCache(build, working, temporary, stepLog, cache => {
+            const command = gradleCommand(build, working, signing);
+            command.args.push(...cache.args);
+            command.env = { ...command.env, ...cache.env };
+            return runBuildCommand(command, stepLog, secrets);
+          })
       );
       await buildLog.runStep(BuildStep.GRADLE_BUILD_PROFILE, stepLog =>
         logGradleProfile(path.join(working, 'android'), stepLog)

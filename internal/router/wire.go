@@ -39,6 +39,7 @@ type AppContainer struct {
 	AppIdentifierRepo           services.AppIdentifierRepository
 	BuildHandler                *handlers.BuildHandler
 	BuildRegistryHandler        *handlers.BuildRegistryHandler
+	BuildCacheHandler           *handlers.BuildCacheHandler
 	AuthHandler                 *dashhandlers.AuthHandler
 	BlobService                 *services.BlobService
 	DashboardAuthService        *services.DashboardAuthService
@@ -114,6 +115,7 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 	// nil in stateless mode: store identities and signing credentials only
 	// exist on the control plane.
 	var buildRepo services.BuildRepository
+	var buildCacheRepo services.BuildCacheRepository
 	var buildCleanup *services.BuildCleanup
 	var appIdentifierRepo services.AppIdentifierRepository
 	var credentialsRepo services.CredentialsRepository
@@ -195,6 +197,7 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 		bundlePatchRepo = store.NewPostgresBundlePatchStore(dbEngine)
 		appIdentifierRepo = store.NewPostgresAppIdentifierStore(dbEngine)
 		buildRepo = store.NewPostgresBuildStore(dbEngine)
+		buildCacheRepo = store.NewPostgresBuildCacheStore(dbEngine)
 		buildCleanup = services.NewBuildCleanup(dbEngine.DB, resolvedBucket)
 		credentialsRepo = store.NewPostgresCredentialsStore(dbEngine)
 		iosCredentialsRepo = store.NewPostgresIosCredentialsStore(dbEngine)
@@ -329,6 +332,7 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 	rolloutService := services.NewRolloutService(rolloutRepo, channelRepo, updateRepo, deploymentService)
 	rolloutService.SetOnAuditEvent(auditService.Record)
 	buildService := services.NewBuildService(buildRepo, appIdentifierRepo, resolvedBucket)
+	buildCacheService := services.NewBuildCacheService(buildCacheRepo, resolvedBucket)
 	if buildCleanup != nil {
 		addCleanup(buildCleanup.Start(ctx))
 	}
@@ -409,6 +413,7 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 		AppIdentifierRepo:           appIdentifierRepo,
 		BuildHandler:                buildHandler,
 		BuildRegistryHandler:        handlers.NewBuildRegistryHandler(buildService),
+		BuildCacheHandler:           handlers.NewBuildCacheHandler(buildCacheService),
 		EnvironmentsHandler:         dashhandlers.NewEnvironmentsHandler(environmentService),
 		ExpoProtocolHandler:         handlers.NewExpoProtocolHandler(expoProtocolService),
 		LicenseHandler:              licensing.NewLicenseHandler(licenseService),

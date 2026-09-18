@@ -629,7 +629,7 @@ func hashedUploads(paths ...string) []FileUploadItem {
 const launchAssetPath = "bundles/launch.hbc"
 
 // fakeRolloutBucket satisfies bucket.Bucket for the revert flow.
-type fakeRolloutBucket struct{}
+type fakeRolloutBucket struct{ bucket.BuildCacheStorage }
 
 func (fakeRolloutBucket) GetBranches(_ string) ([]string, error) { return nil, nil }
 

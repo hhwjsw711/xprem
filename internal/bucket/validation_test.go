@@ -17,6 +17,7 @@ import (
 // stubBucket records the last call so tests can verify whether the validating
 // decorator delegated to the inner bucket or short-circuited on validation.
 type stubBucket struct {
+	BuildCacheStorage
 	called bool
 }
 
