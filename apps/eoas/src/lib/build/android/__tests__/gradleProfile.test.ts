@@ -4,7 +4,7 @@ import path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { LogLine, createBuildLog } from '../../log';
-import { BuildPhase, BuildPhaseResult, LogMarker } from '../../phases';
+import { BuildStep, BuildStepResult, LogMarker } from '../../steps';
 import { formatGradleProfile, logGradleProfile, parseGradleProfile } from '../gradleProfile';
 
 vi.mock('../../../log', () => ({
@@ -116,16 +116,14 @@ describe('Gradle profile logs', () => {
       close: async () => {},
     });
     try {
-      await log.runBuildPhase(BuildPhase.GRADLE_BUILD_PROFILE, phase =>
-        logGradleProfile(directory, phase)
-      );
+      await log.runStep(BuildStep.GRADLE_BUILD_PROFILE, step => logGradleProfile(directory, step));
     } finally {
       await log.close();
     }
     return events;
   }
 
-  it('logs the latest report as individual lines in the EAS profiling phase', async () => {
+  it('logs the latest report as individual lines in the profiling step', async () => {
     await fs.outputFile(
       path.join(directory, 'build/reports/profile/profile-2026-09-09-09-00-00.html'),
       '<old/>'
@@ -136,13 +134,12 @@ describe('Gradle profile logs', () => {
     );
     const events = await readProfileEvents();
     expect(events[0]).toMatchObject({
-      marker: LogMarker.START_PHASE,
-      phase: 'GRADLE_BUILD_PROFILE',
+      marker: LogMarker.START_STEP,
       buildStepDisplayName: 'Gradle build profile',
     });
     expect(events.at(-1)).toMatchObject({
-      marker: LogMarker.END_PHASE,
-      result: BuildPhaseResult.SUCCESS,
+      marker: LogMarker.END_STEP,
+      result: BuildStepResult.SUCCESS,
     });
     expect(events.map(event => event.msg).join('\n')).toContain('6 tasks, total task time: 65.0s');
     expect(events.every(event => !event.msg.includes('\n'))).toBe(true);
@@ -159,8 +156,8 @@ describe('Gradle profile logs', () => {
       }
       const events = await readProfileEvents();
       expect(events.at(-1)).toMatchObject({
-        marker: LogMarker.END_PHASE,
-        result: BuildPhaseResult.SKIPPED,
+        marker: LogMarker.END_STEP,
+        result: BuildStepResult.SKIPPED,
       });
     }
   );

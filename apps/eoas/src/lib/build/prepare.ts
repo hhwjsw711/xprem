@@ -4,7 +4,7 @@ import fs from 'fs-extra';
 import path from 'path';
 
 import { mergeEnvironment } from './environment';
-import { BuildLog, PhaseLogger } from './log';
+import { BuildLog, LogWriter } from './log';
 import { BuildPlatform, fetchEnvironment, resolveIdentifier } from './server';
 import { CONFIG_FILENAME, readConfig } from '../buildConfig/config';
 import { ResourceNameSchema } from '../buildConfig/schema';
@@ -126,21 +126,21 @@ export async function fetchBuildEnvironment(
   endpoint: string,
   profile: BuildProfile,
   local: Record<string, string>,
-  buildLog: PhaseLogger
+  stepLog: LogWriter
 ): Promise<Record<string, string>> {
   let remote: Record<string, string> = {};
   if (profile.channel) {
     remote = await fetchEnvironment(endpoint, { channel: profile.channel });
-    buildLog.info(`Server environment keys: ${keyList(remote)}`);
+    stepLog.info(`Server environment keys: ${keyList(remote)}`);
   } else if (profile.environment) {
     remote = await fetchEnvironment(endpoint, { environment: profile.environment });
-    buildLog.info(`Server environment keys: ${keyList(remote)}`);
+    stepLog.info(`Server environment keys: ${keyList(remote)}`);
   } else {
-    buildLog.info('No channel/environment selected; no server environment fetched.');
+    stepLog.info('No channel/environment selected; no server environment fetched.');
   }
   const variables = mergeEnvironment(remote, local, profile.channel);
-  buildLog.info(`Build environment keys: ${keyList(variables)}`);
-  buildLog.info(
+  stepLog.info(`Build environment keys: ${keyList(variables)}`);
+  stepLog.info(
     'Expo embeds EXPO_PUBLIC_* in JavaScript; other variables are available to app config/tooling, not automatically embedded.'
   );
   return variables;

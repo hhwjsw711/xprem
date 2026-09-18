@@ -1,5 +1,3 @@
-import { randomUUID } from 'crypto';
-
 import { createBuildOutputRedactor } from './errors';
 import { LogLine, LogUploader } from './log';
 import { request } from './server';
@@ -85,7 +83,6 @@ export function createLogUploader(
       }
       // Mask the complete message before splitting. Each batch contains complete JSON records.
       let message = redact(line.msg).replace(/\0/g, '');
-      let first = true;
       do {
         let end = Math.min(message.length, 4000);
         if (end < message.length && /[\uD800-\uDBFF]/.test(message[end - 1])) {
@@ -93,7 +90,6 @@ export function createLogUploader(
         }
         const entry = {
           ...line,
-          logId: first ? line.logId : randomUUID(),
           msg: message.slice(0, end),
         };
         const content = JSON.stringify(entry) + '\n';
@@ -111,7 +107,6 @@ export function createLogUploader(
         queuedBytes += bytes;
         totalBytes += bytes;
         message = message.slice(end);
-        first = false;
       } while (message);
     },
     async close(): Promise<void> {

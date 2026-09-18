@@ -4,8 +4,8 @@ import path from 'path';
 import { afterEach, beforeEach, expect, it } from 'vitest';
 
 import { createBuildLog } from '../log';
-import { BuildPhase } from '../phases';
 import { runBuildCommand } from '../run';
+import { BuildStep } from '../steps';
 
 let project: string;
 let fingerprintModule: string;
@@ -47,7 +47,7 @@ it.each([
   const log = await createBuildLog(project, 'test');
   try {
     await expect(
-      log.runBuildPhase(BuildPhase.CALCULATE_EXPO_UPDATES_RUNTIME_VERSION, phase =>
+      log.runStep(BuildStep.CALCULATE_RUNTIME, step =>
         runBuildCommand(
           {
             title: 'Computing Expo fingerprint',
@@ -62,7 +62,7 @@ it.each([
             cwd: project,
             env: process.env,
           },
-          phase,
+          step,
           []
         )
       )

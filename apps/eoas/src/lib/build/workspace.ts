@@ -7,7 +7,7 @@ import os from 'os';
 import path from 'path';
 
 import { checkEnvironment } from './environment';
-import { BuildLog, PhaseLogger } from './log';
+import { BuildLog, LogWriter } from './log';
 import { BuildInputs, configEnvironment } from './prepare';
 import { BuildCommand, runBuildCommand, terminateBuildCommand } from './run';
 import { BuildPlatform } from './server';
@@ -31,7 +31,7 @@ export async function withTemporaryDirectory<T>(
       };
   const interrupt = (): void => {
     buildLog.abort();
-    buildLog.write('Build interrupted.');
+    buildLog.general.write('Build interrupted.');
     void terminateBuildCommand()
       .then(() => buildLog.close())
       .finally(() =>
@@ -237,12 +237,12 @@ export async function validateBundle(
   mode: 'debug' | 'release',
   working: string,
   temporary: string,
-  buildLog: PhaseLogger,
+  stepLog: LogWriter,
   secrets: string[]
 ): Promise<void> {
   let report: string | undefined;
   if (build.options.ignoreEnvCheck) {
-    buildLog.warn(
+    stepLog.warn(
       'Environment check explicitly disabled; missing/dynamic references are not verified.'
     );
   } else {
@@ -255,7 +255,7 @@ export async function validateBundle(
   try {
     await runBuildCommand(
       expoCommand(build, working, `Validating ${platform} bundle`, args),
-      buildLog,
+      stepLog,
       secrets
     );
   } catch (error) {
