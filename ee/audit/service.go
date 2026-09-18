@@ -13,6 +13,7 @@ import (
 	"xprem/config"
 	"xprem/ee/licensing"
 	"xprem/internal/auditlog"
+	"xprem/internal/requestmeta"
 )
 
 // Event, ActorType, Outcome and Action alias the vocabulary defined in internal/auditlog.
@@ -92,7 +93,7 @@ func (s *AuditService) Record(ctx context.Context, event Event) {
 	if !s.Enabled() {
 		return
 	}
-	meta := auditlog.MetaFromContext(ctx)
+	meta := requestmeta.FromContext(ctx)
 	if event.IP == "" {
 		event.IP = meta.IP
 	}

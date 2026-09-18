@@ -64,9 +64,11 @@ type BuildMetadata struct {
 	GitMessage     string          `json:"gitMessage,omitempty"`
 	GitDirty       bool            `json:"gitDirty,omitempty"`
 	Machine        *BuildMachine   `json:"machine,omitempty"`
-	StartedAt      time.Time       `json:"startedAt,omitzero"`
-	FinishedAt     time.Time       `json:"finishedAt,omitzero"`
-	DurationMs     int64           `json:"durationMs,omitempty"`
+	// ClientIP is observed by the server when the build is first recorded.
+	ClientIP   string    `json:"clientIp,omitempty"`
+	StartedAt  time.Time `json:"startedAt,omitzero"`
+	FinishedAt time.Time `json:"finishedAt,omitzero"`
+	DurationMs int64     `json:"durationMs,omitempty"`
 }
 
 type BuildRecord struct {
