@@ -17,17 +17,15 @@ func TestBuildLogsStructuredRecords(t *testing.T) {
 	start := `{"logId":"start","time":"2026-09-09T10:00:00Z","level":30,"msg":"Start phase","phase":"RUN_GRADLEW","buildStepId":"gradle","marker":"START_PHASE"}`
 	end := `{"logId":"end","time":"2026-09-09T10:00:03Z","level":30,"msg":"End phase","phase":"RUN_GRADLEW","buildStepId":"gradle","marker":"END_PHASE","result":"success","durationMs":3000}`
 	content := start + "\n" + end + "\n"
-	require.NoError(t, f.service.AppendLogs(ctx, testBuildApp, testBuildIdentifier, testBuildID, 0, content, "ndjson"))
+	require.NoError(t, f.service.AppendLogs(ctx, testBuildApp, testBuildIdentifier, testBuildID, 0, content))
 	require.Equal(t, content, f.repo.logs[0].Content)
-	require.Equal(t, "ndjson", f.repo.logs[0].Format)
-	// Legacy clients omit the format; byte offsets still refer to their original text.
-	require.NoError(t, f.service.AppendLogs(ctx, testBuildApp, testBuildIdentifier, testBuildID, int32(len(content)), "old output\n", ""))
-	require.Equal(t, "text", f.repo.logs[1].Format)
+	// Every chunk must contain complete NDJSON events.
+	require.Error(t, f.service.AppendLogs(ctx, testBuildApp, testBuildIdentifier, testBuildID, int32(len(content)), "old output\n"))
+
 	for _, invalid := range []string{start[:len(start)-1], start + "\nnot JSON", start + end, "null"} {
-		require.Error(t, f.service.AppendLogs(ctx, testBuildApp, testBuildIdentifier, testBuildID, 0, invalid, "ndjson"))
+		require.Error(t, f.service.AppendLogs(ctx, testBuildApp, testBuildIdentifier, testBuildID, 0, invalid))
 	}
-	require.Error(t, f.service.AppendLogs(ctx, testBuildApp, testBuildIdentifier, testBuildID, 0, content, "html"))
-	require.Len(t, f.repo.logs, 2)
+	require.Len(t, f.repo.logs, 1)
 }
 
 func TestBuildLogsPhaseValidation(t *testing.T) {

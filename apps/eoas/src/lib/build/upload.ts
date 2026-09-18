@@ -51,7 +51,7 @@ export function createLogUploader(
       try {
         const response = await request<{ nextOffset: number }>(
           `${endpoint}/artifacts/${buildId}/logs`,
-          { method: 'POST', body: { ...batch, format: 'ndjson' }, retry: false, timeout: 5000 }
+          { method: 'POST', body: batch, retry: false, timeout: 5000 }
         );
         if (response.nextOffset !== nextOffset) {
           throw new Error('Invalid log offset');

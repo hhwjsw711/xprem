@@ -24,7 +24,7 @@ afterEach(() => {
 });
 
 it('streams ordered UTF-8 batches, redacts before splitting, and flushes on close', async () => {
-  const received: { offset: number; content: string; format: string }[] = [];
+  const received: { offset: number; content: string }[] = [];
   vi.mocked(request).mockImplementation(async (_url, options) => {
     const batch = options!.body as (typeof received)[number];
     received.push(batch);
@@ -54,7 +54,6 @@ it('streams ordered UTF-8 batches, redacts before splitting, and flushes on clos
   let offset = 0;
   for (const batch of received) {
     expect(batch.offset).toBe(offset);
-    expect(batch.format).toBe('ndjson');
     expect(batch.content.endsWith('\n')).toBe(true);
     expect(Buffer.byteLength(batch.content)).toBeLessThanOrEqual(32768);
     offset += Buffer.byteLength(batch.content);

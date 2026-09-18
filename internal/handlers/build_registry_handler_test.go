@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -55,8 +56,8 @@ func newRegistryRepo() *registryRepo {
 	return &registryRepo{builds: map[string]types.BuildRecord{}, shares: map[string]types.BuildShare{}}
 }
 
-func (r *registryRepo) AppendLogs(_ context.Context, _, _ string, offset int32, content, format string) error {
-	r.logs = append(r.logs, types.BuildLogChunk{Offset: offset, Content: content, Format: format})
+func (r *registryRepo) AppendLogs(_ context.Context, _, _ string, offset int32, content string) error {
+	r.logs = append(r.logs, types.BuildLogChunk{Offset: offset, Content: content})
 	return nil
 }
 
@@ -221,32 +222,40 @@ func TestBuildRegistryLogRequests(t *testing.T) {
 	f := newRegistryFixture(t)
 	w := f.do(http.MethodPut, registryPath+"/start", startBody(time.Now().Add(-time.Minute)))
 	require.Equal(t, http.StatusOK, w.Code)
-	w = f.do(http.MethodPost, registryPath+"/logs", `{"offset":0,"content":"héllo\n"}`)
+	firstContent := `{"logId":"output","time":"2026-09-09T10:00:00Z","level":30,"msg":"héllo"}` + "\n"
+	firstBody, err := json.Marshal(map[string]any{"offset": 0, "content": firstContent})
+	require.NoError(t, err)
+	nextOffset := strconv.Itoa(len(firstContent))
+	w = f.do(http.MethodPost, registryPath+"/logs", string(firstBody))
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	require.JSONEq(t, `{"nextOffset":7}`, w.Body.String())
+	require.JSONEq(t, `{"nextOffset":`+nextOffset+`}`, w.Body.String())
 	for _, body := range []string{
-		`{}`, `null`, `{"offset":-1,"content":"x"}`, `{"offset":2147483648,"content":"x"}`,
+		`{}`, `null`, `{"offset":0,"content":"plain output\n"}`, `{"offset":-1,"content":"x"}`, `{"offset":2147483648,"content":"x"}`,
 		`{"offset":0,"content":"x","token":"no"}`, `{"offset":0,"content":"x"} {}`,
 		`{"offset":0,"content":"` + strings.Repeat("x", types.MaxBuildLogChunkBytes+1) + `"}`,
 	} {
 		require.Equal(t, http.StatusBadRequest, f.do(http.MethodPost, registryPath+"/logs", body).Code, body[:min(80, len(body))])
 	}
+	withFormat, err := json.Marshal(map[string]any{"offset": len(firstContent), "content": firstContent, "format": "ndjson"})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusBadRequest, f.do(http.MethodPost, registryPath+"/logs", string(withFormat)).Code)
 	require.Len(t, f.repo.logs, 1)
 	path := "/api/app/" + registryApp + "/builds/" + registryBuild + "/logs"
 	w = f.do(http.MethodGet, path, "")
 	require.Equal(t, http.StatusOK, w.Code)
-	require.Contains(t, w.Body.String(), `"nextOffset":7`)
+	require.Contains(t, w.Body.String(), `"nextOffset":`+nextOffset)
 	require.Contains(t, w.Body.String(), "héllo")
-	w = f.do(http.MethodGet, path+"?after=7", "")
+	require.NotContains(t, w.Body.String(), `"format"`)
+	w = f.do(http.MethodGet, path+"?after="+nextOffset, "")
 	require.Equal(t, http.StatusOK, w.Code)
-	require.JSONEq(t, `{"chunks":[],"nextOffset":7}`, w.Body.String())
+	require.JSONEq(t, `{"chunks":[],"nextOffset":`+nextOffset+`}`, w.Body.String())
 	for _, after := range []string{"-1", "hello", "2147483648", "10485761"} {
 		require.Equal(t, http.StatusBadRequest, f.do(http.MethodGet, path+"?after="+after, "").Code)
 	}
 	w = f.do(http.MethodGet, strings.Replace(path, registryApp, registryIdentifier, 1), "")
 	require.Equal(t, http.StatusNotFound, w.Code)
 	content := `{"logId":"step","time":"2026-09-09T10:00:00Z","level":30,"msg":"Gradle terminé","phase":"RUN_GRADLEW","buildStepId":"gradle","marker":"END_PHASE","result":"success","durationMs":12345}` + "\n"
-	body, err := json.Marshal(map[string]any{"offset": 7, "content": content, "format": "ndjson"})
+	body, err := json.Marshal(map[string]any{"offset": len(firstContent), "content": content})
 	require.NoError(t, err)
 	w = f.do(http.MethodPost, registryPath+"/logs", string(body))
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
@@ -254,15 +263,14 @@ func TestBuildRegistryLogRequests(t *testing.T) {
 		NextOffset int `json:"nextOffset"`
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &appended))
-	require.Equal(t, 7+len(content), appended.NextOffset)
-	w = f.do(http.MethodGet, path+"?after=7", "")
+	require.Equal(t, len(firstContent)+len(content), appended.NextOffset)
+	w = f.do(http.MethodGet, path+"?after="+nextOffset, "")
 	require.Equal(t, http.StatusOK, w.Code)
 	var page struct {
 		Chunks []types.BuildLogChunk `json:"chunks"`
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &page))
 	require.Len(t, page.Chunks, 1)
-	require.Equal(t, "ndjson", page.Chunks[0].Format)
 	require.Equal(t, content, page.Chunks[0].Content)
 }
 

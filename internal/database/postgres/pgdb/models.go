@@ -178,7 +178,6 @@ type BuildLogChunk struct {
 	ByteOffset int32              `json:"byte_offset"`
 	Content    string             `json:"content"`
 	CreatedAt  pgtype.Timestamptz `json:"created_at"`
-	Format     string             `json:"format"`
 }
 
 type BuildShare struct {

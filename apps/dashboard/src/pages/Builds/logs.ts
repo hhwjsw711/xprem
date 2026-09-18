@@ -23,17 +23,11 @@ export interface BuildLogGroup {
 export interface BuildLogChunk {
   offset: number;
   content: string;
-  format: 'text' | 'ndjson';
   createdAt: string;
 }
 
 export function appendBuildLogs(groups: Map<string, BuildLogGroup>, chunks: BuildLogChunk[]): void {
   for (const chunk of chunks) {
-    if (chunk.format !== 'ndjson') {
-      const group = groups.get('legacy') ?? { id: 'legacy', label: 'Build output', output: '' };
-      groups.set(group.id, { ...group, output: group.output + chunk.content });
-      continue;
-    }
     for (const line of chunk.content.trimEnd().split('\n')) {
       const event: BuildLogEvent = JSON.parse(line);
       const id = event.buildStepId ?? event.buildStepDisplayName ?? event.phase ?? 'general';

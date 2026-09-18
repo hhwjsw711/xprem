@@ -155,7 +155,6 @@ func (h *BuildRegistryHandler) AppendLogs(w http.ResponseWriter, r *http.Request
 	var input struct {
 		Offset  int32  `json:"offset"`
 		Content string `json:"content"`
-		Format  string `json:"format"`
 	}
 	// JSON escaping can expand a byte to six characters (for example, a tab).
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, types.MaxBuildLogChunkBytes*6+1024))
@@ -168,7 +167,7 @@ func (h *BuildRegistryHandler) AppendLogs(w http.ResponseWriter, r *http.Request
 		RenderError(w, http.StatusBadRequest, "Invalid log batch.")
 		return
 	}
-	if err := h.service.AppendLogs(r.Context(), mux.Vars(r)["APP_ID"], services.BuildIdentifierFromContext(r.Context()), mux.Vars(r)["BUILD_ID"], input.Offset, input.Content, input.Format); err != nil {
+	if err := h.service.AppendLogs(r.Context(), mux.Vars(r)["APP_ID"], services.BuildIdentifierFromContext(r.Context()), mux.Vars(r)["BUILD_ID"], input.Offset, input.Content); err != nil {
 		renderBuildRegistryError(w, err)
 		return
 	}
