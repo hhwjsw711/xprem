@@ -45,7 +45,7 @@ type BuildRepository interface {
 	ListShares(context.Context, string) ([]types.BuildShare, error)
 	RevokeShare(context.Context, string, string) error
 	ResolveShare(context.Context, string) (*types.BuildRecord, time.Time, error)
-	AppendLogs(context.Context, string, string, int32, string, string) error
+	AppendLogs(context.Context, string, string, int32, string) error
 	ListLogs(context.Context, string, string, int32) ([]types.BuildLogChunk, error)
 }
 type BuildService struct {
@@ -377,7 +377,7 @@ func (s *BuildService) List(ctx context.Context, appID string, limit, offset int
 	return page, nil
 }
 
-func (s *BuildService) AppendLogs(ctx context.Context, appID, identifierID, id string, offset int32, content, format string) error {
+func (s *BuildService) AppendLogs(ctx context.Context, appID, identifierID, id string, offset int32, content string) error {
 	if offset < 0 || len(content) == 0 || len(content) > types.MaxBuildLogChunkBytes || int64(offset)+int64(len(content)) > types.MaxBuildLogBytes || !utf8.ValidString(content) || strings.ContainsRune(content, 0) {
 		return validation.Errorf("logs", "expected UTF-8 output in chunks up to 32 KiB, at most 10 MiB per build")
 	}
@@ -388,18 +388,10 @@ func (s *BuildService) AppendLogs(ctx context.Context, appID, identifierID, id s
 	if build.AppIdentifierID != identifierID {
 		return &store.ErrResourceNotFound{Resource: "build", Identifier: id}
 	}
-	if format == "" {
-		format = "text"
+	if err := validateBuildLogEvents(content); err != nil {
+		return err
 	}
-	if format != "text" && format != "ndjson" {
-		return validation.Errorf("format", "expected text or ndjson")
-	}
-	if format == "ndjson" {
-		if err := validateBuildLogEvents(content); err != nil {
-			return err
-		}
-	}
-	return s.repo.AppendLogs(ctx, appID, id, offset, content, format)
+	return s.repo.AppendLogs(ctx, appID, id, offset, content)
 }
 
 func (s *BuildService) ListLogs(ctx context.Context, appID, id string, after int32) ([]types.BuildLogChunk, error) {

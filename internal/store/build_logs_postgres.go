@@ -11,7 +11,7 @@ import (
 
 var ErrBuildLogOffset = errors.New("build log offset conflicts with stored output")
 
-func (s *PostgresBuildStore) AppendLogs(ctx context.Context, appID, id string, offset int32, content, format string) error {
+func (s *PostgresBuildStore) AppendLogs(ctx context.Context, appID, id string, offset int32, content string) error {
 	// Serialize appends for one build, including retries after an uncertain response.
 	return s.engine.WithTx(ctx, func(q *pgdb.Queries) error {
 		if _, err := q.LockBuild(ctx, pgdb.LockBuildParams{AppID: ToPgUUID(appID), ID: ToPgUUID(id)}); err != nil {
@@ -29,7 +29,7 @@ func (s *PostgresBuildStore) AppendLogs(ctx context.Context, appID, id string, o
 			if err != nil {
 				return err
 			}
-			if stored.Content != content || stored.Format != format {
+			if stored != content {
 				return ErrBuildLogOffset
 			}
 			return nil
@@ -37,7 +37,7 @@ func (s *PostgresBuildStore) AppendLogs(ctx context.Context, appID, id string, o
 		if offset != end {
 			return ErrBuildLogOffset
 		}
-		return q.InsertBuildLogChunk(ctx, pgdb.InsertBuildLogChunkParams{BuildID: ToPgUUID(id), ByteOffset: offset, Content: content, Format: format})
+		return q.InsertBuildLogChunk(ctx, pgdb.InsertBuildLogChunkParams{BuildID: ToPgUUID(id), ByteOffset: offset, Content: content})
 	})
 }
 
@@ -48,7 +48,7 @@ func (s *PostgresBuildStore) ListLogs(ctx context.Context, appID, id string, aft
 	}
 	chunks := make([]types.BuildLogChunk, 0, len(rows))
 	for _, row := range rows {
-		chunks = append(chunks, types.BuildLogChunk{Offset: row.ByteOffset, Content: row.Content, Format: row.Format, CreatedAt: row.CreatedAt.Time})
+		chunks = append(chunks, types.BuildLogChunk{Offset: row.ByteOffset, Content: row.Content, CreatedAt: row.CreatedAt.Time})
 	}
 	return chunks, nil
 }

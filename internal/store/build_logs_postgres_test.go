@@ -17,6 +17,10 @@ func TestBuildLogsOrderedIdempotentAndScoped(t *testing.T) {
 	id := uuid.NewString()
 	_, _, err := f.builds.Create(ctx, f.record(id, types.BuildStatusBuilding))
 	require.NoError(t, err)
+	firstContent := `{"logId":"first","time":"2026-09-09T10:00:00Z","level":30,"msg":"héllo"}` + "\n"
+	secondContent := `{"logId":"second","time":"2026-09-09T10:00:01Z","level":30,"msg":"done"}` + "\n"
+	secondOffset := int32(len(firstContent))
+	thirdOffset := secondOffset + int32(len(secondContent))
 	// An uncertain response can be retried concurrently without duplicating output.
 	var wg sync.WaitGroup
 	failures := make(chan error, 8)
@@ -24,7 +28,7 @@ func TestBuildLogsOrderedIdempotentAndScoped(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			failures <- f.builds.AppendLogs(ctx, f.app, id, 0, "héllo\n", "text")
+			failures <- f.builds.AppendLogs(ctx, f.app, id, 0, firstContent)
 		}()
 	}
 	wg.Wait()
@@ -32,29 +36,27 @@ func TestBuildLogsOrderedIdempotentAndScoped(t *testing.T) {
 	for err := range failures {
 		require.NoError(t, err)
 	}
-	require.ErrorIs(t, f.builds.AppendLogs(ctx, f.app, id, 0, "different", "text"), store.ErrBuildLogOffset)
-	require.ErrorIs(t, f.builds.AppendLogs(ctx, f.app, id, 50, "gap", "text"), store.ErrBuildLogOffset)
-	require.ErrorIs(t, f.builds.AppendLogs(ctx, f.app, id, 1, "overlap", "text"), store.ErrBuildLogOffset)
-	require.NoError(t, f.builds.AppendLogs(ctx, f.app, id, 7, "done\n", "text"))
+	require.ErrorIs(t, f.builds.AppendLogs(ctx, f.app, id, 0, "different"), store.ErrBuildLogOffset)
+	require.ErrorIs(t, f.builds.AppendLogs(ctx, f.app, id, secondOffset+1, secondContent), store.ErrBuildLogOffset)
+	require.ErrorIs(t, f.builds.AppendLogs(ctx, f.app, id, 1, firstContent), store.ErrBuildLogOffset)
+	require.NoError(t, f.builds.AppendLogs(ctx, f.app, id, secondOffset, secondContent))
 	logs, err := f.builds.ListLogs(ctx, f.app, id, 0)
 	require.NoError(t, err)
 	require.Len(t, logs, 2)
-	require.Equal(t, "héllo\n", logs[0].Content)
-	require.Equal(t, "text", logs[0].Format)
-	require.Equal(t, int32(7), logs[1].Offset)
-	logs, err = f.builds.ListLogs(ctx, f.app, id, 7)
+	require.Equal(t, firstContent, logs[0].Content)
+	require.Equal(t, secondOffset, logs[1].Offset)
+	logs, err = f.builds.ListLogs(ctx, f.app, id, secondOffset)
 	require.NoError(t, err)
 	require.Len(t, logs, 1)
 	content := `{"logId":"event","time":"2026-09-09T10:00:00Z","level":30,"msg":"structured"}` + "\n"
-	require.NoError(t, f.builds.AppendLogs(ctx, f.app, id, 12, content, "ndjson"))
-	require.NoError(t, f.builds.AppendLogs(ctx, f.app, id, 12, content, "ndjson"))
-	require.ErrorIs(t, f.builds.AppendLogs(ctx, f.app, id, 12, content, "text"), store.ErrBuildLogOffset)
-	logs, err = f.builds.ListLogs(ctx, f.app, id, 12)
+	require.NoError(t, f.builds.AppendLogs(ctx, f.app, id, thirdOffset, content))
+	require.NoError(t, f.builds.AppendLogs(ctx, f.app, id, thirdOffset, content))
+	require.ErrorIs(t, f.builds.AppendLogs(ctx, f.app, id, thirdOffset, secondContent), store.ErrBuildLogOffset)
+	logs, err = f.builds.ListLogs(ctx, f.app, id, thirdOffset)
 	require.NoError(t, err)
 	require.Len(t, logs, 1)
 	require.Equal(t, content, logs[0].Content)
-	require.Equal(t, "ndjson", logs[0].Format)
-	require.Error(t, f.builds.AppendLogs(ctx, uuid.NewString(), id, 12, "other app", "text"))
+	require.Error(t, f.builds.AppendLogs(ctx, uuid.NewString(), id, thirdOffset, "other app"))
 	logs, err = f.builds.ListLogs(ctx, uuid.NewString(), id, 0)
 	require.NoError(t, err)
 	require.Empty(t, logs)

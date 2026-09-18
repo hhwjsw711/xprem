@@ -24,7 +24,7 @@ func (q *Queries) BuildLogEndOffset(ctx context.Context, buildID pgtype.UUID) (i
 }
 
 const getBuildLogChunk = `-- name: GetBuildLogChunk :one
-SELECT content, format FROM build_log_chunks WHERE build_id=$1 AND byte_offset=$2
+SELECT content FROM build_log_chunks WHERE build_id=$1 AND byte_offset=$2
 `
 
 type GetBuildLogChunkParams struct {
@@ -32,41 +32,30 @@ type GetBuildLogChunkParams struct {
 	ByteOffset int32       `json:"byte_offset"`
 }
 
-type GetBuildLogChunkRow struct {
-	Content string `json:"content"`
-	Format  string `json:"format"`
-}
-
-func (q *Queries) GetBuildLogChunk(ctx context.Context, arg GetBuildLogChunkParams) (GetBuildLogChunkRow, error) {
+func (q *Queries) GetBuildLogChunk(ctx context.Context, arg GetBuildLogChunkParams) (string, error) {
 	row := q.db.QueryRow(ctx, getBuildLogChunk, arg.BuildID, arg.ByteOffset)
-	var i GetBuildLogChunkRow
-	err := row.Scan(&i.Content, &i.Format)
-	return i, err
+	var content string
+	err := row.Scan(&content)
+	return content, err
 }
 
 const insertBuildLogChunk = `-- name: InsertBuildLogChunk :exec
-INSERT INTO build_log_chunks(build_id, byte_offset, content, format) VALUES ($1,$2,$3,$4)
+INSERT INTO build_log_chunks(build_id, byte_offset, content) VALUES ($1,$2,$3)
 `
 
 type InsertBuildLogChunkParams struct {
 	BuildID    pgtype.UUID `json:"build_id"`
 	ByteOffset int32       `json:"byte_offset"`
 	Content    string      `json:"content"`
-	Format     string      `json:"format"`
 }
 
 func (q *Queries) InsertBuildLogChunk(ctx context.Context, arg InsertBuildLogChunkParams) error {
-	_, err := q.db.Exec(ctx, insertBuildLogChunk,
-		arg.BuildID,
-		arg.ByteOffset,
-		arg.Content,
-		arg.Format,
-	)
+	_, err := q.db.Exec(ctx, insertBuildLogChunk, arg.BuildID, arg.ByteOffset, arg.Content)
 	return err
 }
 
 const listBuildLogChunks = `-- name: ListBuildLogChunks :many
-SELECT l.byte_offset, l.content, l.format, l.created_at FROM build_log_chunks l
+SELECT l.byte_offset, l.content, l.created_at FROM build_log_chunks l
 JOIN builds b ON b.id=l.build_id
 WHERE b.app_id=$1 AND l.build_id=$2 AND l.byte_offset >= $3
 ORDER BY l.byte_offset LIMIT 32
@@ -81,7 +70,6 @@ type ListBuildLogChunksParams struct {
 type ListBuildLogChunksRow struct {
 	ByteOffset int32              `json:"byte_offset"`
 	Content    string             `json:"content"`
-	Format     string             `json:"format"`
 	CreatedAt  pgtype.Timestamptz `json:"created_at"`
 }
 
@@ -94,12 +82,7 @@ func (q *Queries) ListBuildLogChunks(ctx context.Context, arg ListBuildLogChunks
 	var items []ListBuildLogChunksRow
 	for rows.Next() {
 		var i ListBuildLogChunksRow
-		if err := rows.Scan(
-			&i.ByteOffset,
-			&i.Content,
-			&i.Format,
-			&i.CreatedAt,
-		); err != nil {
+		if err := rows.Scan(&i.ByteOffset, &i.Content, &i.CreatedAt); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

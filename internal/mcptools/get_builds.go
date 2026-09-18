@@ -179,7 +179,7 @@ func registerGetBuild(server *mcpprot.Server, deps Deps) {
 func registerGetBuildLogs(server *mcpprot.Server, deps Deps) {
 	mcpprot.AddTool(server, &mcpprot.Tool{
 		Name:        "get_build_logs",
-		Description: "The log of a native build (appId and buildId required), about 64 KiB per call. Chunks in ndjson format hold one JSON event per line, text chunks hold raw output. While hasMore is true, pass nextOffset back as after. Requires the build:read permission on the app.",
+		Description: "The log of a native build (appId and buildId required), about 64 KiB per call. Chunks contain NDJSON with one JSON event per line. While hasMore is true, pass nextOffset back as after. Requires the build:read permission on the app.",
 		Annotations: &mcpprot.ToolAnnotations{Title: "Build log", ReadOnlyHint: true},
 	}, getBuildLogsHandler(deps))
 }

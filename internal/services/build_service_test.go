@@ -130,8 +130,8 @@ func (r *memoryBuildRepo) ListShares(context.Context, string) ([]types.BuildShar
 
 func (r *memoryBuildRepo) RevokeShare(context.Context, string, string) error { return nil }
 
-func (r *memoryBuildRepo) AppendLogs(_ context.Context, _, _ string, offset int32, content, format string) error {
-	r.logs = append(r.logs, types.BuildLogChunk{Offset: offset, Content: content, Format: format})
+func (r *memoryBuildRepo) AppendLogs(_ context.Context, _, _ string, offset int32, content string) error {
+	r.logs = append(r.logs, types.BuildLogChunk{Offset: offset, Content: content})
 	return nil
 }
 
@@ -144,15 +144,16 @@ func TestBuildLogsValidateScopeAndSize(t *testing.T) {
 	ctx := WithCliAuth(context.Background(), CliCredential{AppID: testBuildApp, KeyID: 7})
 	_, err := f.service.Start(ctx, testBuildApp, testBuildIdentifier, testBuildID, f.startInput())
 	require.NoError(t, err)
-	require.NoError(t, f.service.AppendLogs(ctx, testBuildApp, testBuildIdentifier, testBuildID, 0, "hello\n", "text"))
+	content := `{"logId":"output","time":"2026-09-09T10:00:00Z","level":30,"msg":"héllo"}` + "\n"
+	require.NoError(t, f.service.AppendLogs(ctx, testBuildApp, testBuildIdentifier, testBuildID, 0, content))
 	require.Len(t, f.repo.logs, 1)
-	require.Error(t, f.service.AppendLogs(ctx, otherBuildID, testBuildIdentifier, testBuildID, 6, "wrong app", "text"))
-	require.Error(t, f.service.AppendLogs(ctx, testBuildApp, otherBuildID, testBuildID, 6, "wrong identifier", "text"))
+	require.Error(t, f.service.AppendLogs(ctx, otherBuildID, testBuildIdentifier, testBuildID, int32(len(content)), content))
+	require.Error(t, f.service.AppendLogs(ctx, testBuildApp, otherBuildID, testBuildID, int32(len(content)), content))
 	for _, content := range []string{"", "invalid\x00", "invalid\xff", strings.Repeat("x", types.MaxBuildLogChunkBytes+1)} {
-		require.Error(t, f.service.AppendLogs(ctx, testBuildApp, testBuildIdentifier, testBuildID, 6, content, "text"))
+		require.Error(t, f.service.AppendLogs(ctx, testBuildApp, testBuildIdentifier, testBuildID, 6, content))
 	}
 	for _, offset := range []int32{-1, types.MaxBuildLogBytes, 2147483647} {
-		require.Error(t, f.service.AppendLogs(ctx, testBuildApp, testBuildIdentifier, testBuildID, offset, "too far", "text"))
+		require.Error(t, f.service.AppendLogs(ctx, testBuildApp, testBuildIdentifier, testBuildID, offset, content))
 	}
 	require.Len(t, f.repo.logs, 1)
 	_, err = f.service.ListLogs(ctx, otherBuildID, testBuildID, 0)
@@ -162,7 +163,7 @@ func TestBuildLogsValidateScopeAndSize(t *testing.T) {
 	// Final output can arrive after the artifact or the failure has been reported.
 	_, err = f.service.Fail(ctx, testBuildApp, testBuildIdentifier, testBuildID, FailBuildInput{FinishedAt: f.now})
 	require.NoError(t, err)
-	require.NoError(t, f.service.AppendLogs(ctx, testBuildApp, testBuildIdentifier, testBuildID, 6, "failed\n", "text"))
+	require.NoError(t, f.service.AppendLogs(ctx, testBuildApp, testBuildIdentifier, testBuildID, int32(len(content)), content))
 }
 
 func (r *memoryBuildRepo) ResolveShare(_ context.Context, hash string) (*types.BuildRecord, time.Time, error) {
