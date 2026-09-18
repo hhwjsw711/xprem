@@ -13,13 +13,13 @@ import (
 	"time"
 	"xprem/config"
 	"xprem/internal/assets"
-	"xprem/internal/branch"
 	"xprem/internal/bucket"
 	cache2 "xprem/internal/cache"
 	cdn2 "xprem/internal/cdn"
 	"xprem/internal/crypto"
 	"xprem/internal/keyStore"
 	"xprem/internal/metrics"
+	"xprem/internal/namepattern"
 	"xprem/internal/types"
 	update2 "xprem/internal/update"
 
@@ -671,5 +671,5 @@ func (s *ExpoProtocolService) isAssetBranchAllowed(ctx context.Context, appId st
 		return true
 	}
 	enabled, pattern := s.branchSurfingEnabled(ctx, appId, channelName)
-	return enabled && branch.MatchPattern(pattern, branchName)
+	return enabled && namepattern.Match(pattern, branchName)
 }

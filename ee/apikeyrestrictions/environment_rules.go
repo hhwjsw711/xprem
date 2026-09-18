@@ -7,7 +7,7 @@ package apikeyrestrictions
 import (
 	"context"
 	"fmt"
-	"xprem/internal/branch"
+	"xprem/internal/namepattern"
 	"xprem/internal/services"
 	"xprem/internal/validation"
 )
@@ -35,7 +35,7 @@ func AllowsEnvironment(rules []EnvironmentRule, environment string) bool {
 		return true
 	}
 	for _, rule := range rules {
-		if branch.MatchPattern(rule.Pattern, environment) {
+		if namepattern.Match(rule.Pattern, environment) {
 			return true
 		}
 	}
@@ -53,7 +53,7 @@ func NormalizeEnvironmentRules(rules []EnvironmentRule) ([]EnvironmentRule, erro
 		if err := validation.NamePattern("environments.pattern", rule.Pattern); err != nil {
 			return nil, err
 		}
-		pattern := branch.CollapseWildcards(rule.Pattern)
+		pattern := namepattern.CollapseWildcards(rule.Pattern)
 		if _, duplicate := seen[pattern]; duplicate {
 			return nil, validation.Errorf("environments.pattern", "%q appears in more than one rule", pattern)
 		}

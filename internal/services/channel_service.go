@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"strconv"
 	"xprem/internal/auditlog"
-	"xprem/internal/branch"
 	"xprem/internal/cache"
 	"xprem/internal/dashboard"
+	"xprem/internal/namepattern"
 	"xprem/internal/types"
 	"xprem/internal/validation"
 )
@@ -140,7 +140,7 @@ func (s *ChannelService) SetBranchSurfing(ctx context.Context, appId string, cha
 	}
 	// Collapsed on write, as API key access rules are, so patterns naming the
 	// same set of branches are stored identically.
-	surfing.Pattern = branch.CollapseWildcards(surfing.Pattern)
+	surfing.Pattern = namepattern.CollapseWildcards(surfing.Pattern)
 	if err := s.channelRepo.SetBranchSurfing(ctx, appId, channelName, surfing); err != nil {
 		return err
 	}
@@ -222,7 +222,7 @@ func (s *ChannelService) ListSurfableBranches(ctx context.Context, appId string,
 	matched := make([]types.SurfableBranch, 0, limit)
 	total := 0
 	for _, candidate := range branches {
-		if candidate.Name == mappedBranch || !branch.MatchPattern(pattern, candidate.Name) {
+		if candidate.Name == mappedBranch || !namepattern.Match(pattern, candidate.Name) {
 			continue
 		}
 		total++

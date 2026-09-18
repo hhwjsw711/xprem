@@ -1,4 +1,4 @@
-package branch
+package namepattern
 
 import (
 	"testing"
@@ -10,7 +10,7 @@ import (
 // name nothing, or a first careless click exposes the whole app.
 func TestEmptyPatternMatchesNothing(t *testing.T) {
 	for _, name := range []string{"production", "pr-482", "*", "a", ""} {
-		assert.False(t, MatchPattern("", name), name)
+		assert.False(t, Match("", name), name)
 	}
 }
 
@@ -18,5 +18,5 @@ func TestEmptyPatternMatchesNothing(t *testing.T) {
 // makes the empty pattern match it, which is the one case where the
 // deny-by-default default would let something through.
 func TestEmptyPatternMatchesTheEmptyNameEither(t *testing.T) {
-	assert.False(t, MatchPattern("", ""))
+	assert.False(t, Match("", ""))
 }

@@ -1,4 +1,4 @@
-package branch
+package namepattern
 
 import (
 	"testing"
@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestMatchPattern(t *testing.T) {
+func TestMatch(t *testing.T) {
 	cases := []struct {
 		pattern string
 		name    string
@@ -34,7 +34,7 @@ func TestMatchPattern(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.pattern+"/"+tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, MatchPattern(tc.pattern, tc.name))
+			assert.Equal(t, tc.want, Match(tc.pattern, tc.name))
 		})
 	}
 }

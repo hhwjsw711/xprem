@@ -1,12 +1,10 @@
-package branch
+package namepattern
 
 import "strings"
 
-// MatchPattern reports whether name matches pattern, "*" standing for any run
-// of characters, empty included. The empty pattern matches no name. Branch
-// names cannot contain "*", so a pattern without one is never ambiguous with a
-// literal name. Callers normalize with CollapseWildcards first.
-func MatchPattern(pattern, name string) bool {
+// Match reports whether name matches pattern, "*" standing for any run of
+// characters, empty included. The empty pattern matches no name.
+func Match(pattern, name string) bool {
 	if pattern == "" {
 		return false
 	}
@@ -35,7 +33,7 @@ func MatchPattern(pattern, name string) bool {
 }
 
 // CollapseWildcards rewrites any run of "*" as a single one, so that patterns
-// naming the same set of branches compare equal.
+// naming the same set of names compare equal.
 func CollapseWildcards(pattern string) string {
 	for strings.Contains(pattern, "**") {
 		pattern = strings.ReplaceAll(pattern, "**", "*")

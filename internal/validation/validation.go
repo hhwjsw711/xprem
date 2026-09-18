@@ -83,11 +83,11 @@ func Name(field, value string) error {
 	return namePattern(field, value, maxNameLen)
 }
 
-// NamePattern validates a branch pattern used in an API key's access rules: a
-// branch name, or a name with "*" standing for any run of characters, empty
-// included ("pr-*", "*-staging", "*"). Every other rule of Name applies except
-// the length cap (maxPatternLen), so a pattern without a wildcard is exactly a
-// branch name and matches only that branch.
+// NamePattern validates a branch or environment pattern used in an API key's
+// access rules: a name, or a name with "*" standing for any run of characters,
+// empty included ("pr-*", "*-staging", "*"). Every other rule of Name applies
+// except the length cap (maxPatternLen), so a pattern without a wildcard is
+// exactly a name and matches only that one.
 func NamePattern(field, value string) error {
 	return namePattern(field, value, maxPatternLen)
 }

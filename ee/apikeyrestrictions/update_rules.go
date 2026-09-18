@@ -8,7 +8,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"xprem/internal/branch"
+	"xprem/internal/namepattern"
 	"xprem/internal/services"
 	"xprem/internal/validation"
 )
@@ -63,7 +63,7 @@ type UpdateRule struct {
 }
 
 func (rule UpdateRule) Allows(branchName string, action UpdateAction) bool {
-	if !matchBranchPattern(rule.Pattern, branchName) {
+	if !namepattern.Match(rule.Pattern, branchName) {
 		return false
 	}
 	for _, granted := range rule.Actions {
@@ -99,7 +99,7 @@ func NormalizeUpdateRules(rules []UpdateRule) ([]UpdateRule, error) {
 		if err := validation.NamePattern("pattern", rule.Pattern); err != nil {
 			return nil, err
 		}
-		pattern := branch.CollapseWildcards(rule.Pattern)
+		pattern := namepattern.CollapseWildcards(rule.Pattern)
 		if _, duplicate := seen[pattern]; duplicate {
 			return nil, validation.Errorf("pattern", "%q appears in more than one rule; merge them into one", pattern)
 		}
@@ -112,7 +112,6 @@ func NormalizeUpdateRules(rules []UpdateRule) ([]UpdateRule, error) {
 	}
 	return normalized, nil
 }
-
 
 func normalizeUpdateActions(pattern string, actions []UpdateAction) ([]UpdateAction, error) {
 	granted := make(map[UpdateAction]struct{}, len(actions))
@@ -132,12 +131,6 @@ func normalizeUpdateActions(pattern string, actions []UpdateAction) ([]UpdateAct
 		}
 	}
 	return ordered, nil
-}
-
-// matchBranchPattern matches name against pattern, "*" standing for any run of
-// characters, including empty.
-func matchBranchPattern(pattern, name string) bool {
-	return branch.MatchPattern(pattern, name)
 }
 
 // describeUpdateRules renders a rule list for the audit trail.

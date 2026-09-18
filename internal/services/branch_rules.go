@@ -2,7 +2,7 @@ package services
 
 import (
 	"context"
-	"xprem/internal/branch"
+	"xprem/internal/namepattern"
 	"xprem/internal/rollout"
 	"xprem/internal/types"
 )
@@ -68,7 +68,7 @@ func HonoursSurf(req *BranchResolutionRequest) bool {
 	return req.RequestedBranch != "" &&
 		req.Surfing.Enabled &&
 		req.RequestedBranch != req.Mapping.BranchName &&
-		branch.MatchPattern(req.Surfing.Pattern, req.RequestedBranch)
+		namepattern.Match(req.Surfing.Pattern, req.RequestedBranch)
 }
 
 func (r *branchSurfRule) Evaluate(ctx context.Context, req *BranchResolutionRequest) ([]string, bool, error) {

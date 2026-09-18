@@ -347,7 +347,7 @@ type ChannelMapping struct {
 // BranchSurfing is a channel's branch-surfing setting: whether a device polling
 // the channel may ask to be served a branch other than the mapped one, and
 // which branches it may reach. Pattern uses the "*" wildcard language of
-// branch.MatchPattern.
+// namepattern.Match.
 type BranchSurfing struct {
 	Enabled bool   `json:"enabled"`
 	Pattern string `json:"pattern"`
