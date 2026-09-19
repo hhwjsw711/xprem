@@ -40,10 +40,15 @@ const step: StepLogger = {
   warn: vi.fn(),
   markSkipped: vi.fn(),
 };
-const buildLog = {
+const buildLog: BuildLog = {
+  path: 'build.log',
   general: step,
-  runStep: (_name: string, work: (log: StepLogger) => unknown) => work(step),
-} as BuildLog;
+  maskSecrets: vi.fn(),
+  streamTo: vi.fn(),
+  runStep: (_name, work) => work(step),
+  abort: vi.fn(),
+  close: vi.fn().mockResolvedValue(undefined),
+};
 
 beforeEach(async () => {
   vi.clearAllMocks();
@@ -79,6 +84,7 @@ beforeEach(async () => {
   });
   vi.mocked(uploadBuildArtifact).mockImplementation(async () => {
     events.push('upload');
+    return 'https://example.test/artifacts/app.apk';
   });
   native = {
     platform: 'android',

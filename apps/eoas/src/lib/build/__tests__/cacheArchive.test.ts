@@ -112,7 +112,9 @@ it('treats only lookup HTTP 404 as a cache miss', async () => {
   vi.mocked(request).mockRejectedValueOnce(new BuildServerError(403));
   await expect(restoreCacheArchive(archive)).rejects.toMatchObject({ status: 403 });
 
-  const url = await bucket((_req, res) => res.writeHead(404).end());
+  const url = await bucket((_req, res) => {
+    res.writeHead(404).end();
+  });
   vi.mocked(request).mockResolvedValue({ object: metadata(archive, Buffer.alloc(1024)), url });
   await expect(restoreCacheArchive(archive)).rejects.toMatchObject({ status: 404 });
 });
@@ -135,7 +137,9 @@ it('rejects oversized archive metadata before downloading', async () => {
 it('does not publish an archive after an upload failure', async () => {
   const archive = await fixture();
   await fs.outputFile(path.join(archive.directory, 'entry'), 'result');
-  const url = await bucket((_req, res) => res.writeHead(500).end());
+  const url = await bucket((_req, res) => {
+    res.writeHead(500).end();
+  });
   vi.mocked(request).mockImplementation(async (_url, options) => ({
     object: { id: 'upload-1', ...(options!.body as object) },
     upload: { url, method: 'PUT' },
@@ -220,7 +224,9 @@ function metadata(archive: CacheArchive, bytes: Buffer): Record<string, unknown>
 }
 
 async function serveArchive(archive: CacheArchive, bytes: Buffer, expected = bytes): Promise<void> {
-  const url = await bucket((_req, res) => res.end(bytes));
+  const url = await bucket((_req, res) => {
+    res.end(bytes);
+  });
   vi.mocked(request).mockResolvedValue({ object: metadata(archive, expected), url });
 }
 
