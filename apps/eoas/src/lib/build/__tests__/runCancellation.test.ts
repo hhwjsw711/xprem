@@ -39,7 +39,8 @@ it.each(['graceful', 'forced'])(
         stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
       });
       child.once('message', pid => console.log('ready ' + pid));
-      process.on('SIGTERM', () => { child.kill('SIGTERM'); process.exit(0); });
+      // The launcher exits without forwarding signals to its detached worker.
+      process.on('SIGTERM', () => process.exit(0));
       `
     );
     const log = { write: vi.fn(), info: vi.fn(), warn: vi.fn() };

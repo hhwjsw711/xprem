@@ -140,10 +140,9 @@ async function stopProcessTree(pid?: number): Promise<void> {
       return;
     }
     if (!signalled) {
-      const root = remaining.find(process => process.pid === pid);
-      if (root) {
-        signalProcess(root.pid, 'SIGTERM');
-      }
+      remaining.reverse().forEach(process => {
+        signalProcess(process.pid, 'SIGTERM');
+      });
       signalled = true;
     }
     if (Date.now() >= deadline) {
