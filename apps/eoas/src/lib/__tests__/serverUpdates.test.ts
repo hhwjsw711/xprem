@@ -171,7 +171,7 @@ describe('fetchUpdates and fetchRuntimeVersions', () => {
   });
 
   it('treats a missing publish-group endpoint as unsupported', async () => {
-    vi.mocked(fetchWithRetries).mockResolvedValueOnce(new Response(null, { status: 404 }));
+    vi.mocked(fetchWithRetries).mockResolvedValueOnce(new Response(undefined, { status: 404 }));
     await expect(
       fetchPublishGroups({
         baseUrl: 'https://ota.example.com',

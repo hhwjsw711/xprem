@@ -19,7 +19,7 @@ vi.mock('node-fetch', async importOriginal => {
 const mockFetch = vi.mocked(fetch);
 
 function response(status: number, headers: Record<string, string> = {}): Response {
-  return new Response(null, { status, headers });
+  return new Response(undefined, { status, headers });
 }
 
 beforeEach(() => {
