@@ -4,6 +4,7 @@ import "time"
 
 const MaxBuildCacheObjectBytes int64 = 512 << 20
 const MaxBuildCacheBytes int64 = 10 << 30
+const MaxBuildCacheObjects = 100
 
 // BuildCacheNamespace identifies the cache protocol, independently of the build platform.
 type BuildCacheNamespace string
@@ -13,7 +14,7 @@ const (
 	BuildCacheCcache BuildCacheNamespace = "ccache"
 )
 
-// A key is opaque to storage; each protocol validates its own keys.
+// BuildCacheObject stores opaque bytes; each cache protocol defines its keys and payloads.
 type BuildCacheObject struct {
 	ID              string              `json:"id"`
 	AppID           string              `json:"-"`

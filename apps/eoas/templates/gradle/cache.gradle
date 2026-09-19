@@ -1,32 +1,6 @@
-gradle.settingsEvaluated { settings ->
-  settings.buildCache {
-    remote(org.gradle.caching.http.HttpBuildCache) {
-      url = System.getenv('EOAS_GRADLE_CACHE_URL')
-      allowInsecureProtocol = true // Authenticated loopback relay, never the remote server.
-      push = true
-    }
-  }
-}
-
-def launcher = System.getenv('EOAS_CCACHE')
-if (launcher) {
-  gradle.beforeProject { project ->
-    ['com.android.application', 'com.android.library'].each { plugin ->
-      project.pluginManager.withPlugin(plugin) {
-        project.extensions.getByName('androidComponents').finalizeDsl { android ->
-          def arguments = android.defaultConfig.externalNativeBuild.cmake.arguments
-          // Respect a project's existing compiler launcher.
-          ['C', 'CXX'].each { language ->
-            def flag = "-DCMAKE_${language}_COMPILER_LAUNCHER="
-            if (!arguments.any { it.startsWith(flag) }) {
-              arguments.add(flag + launcher)
-            }
-          }
-          def root = System.getenv('EOAS_CACHE_PROJECT_DIR')
-          android.defaultConfig.externalNativeBuild.cmake.cFlags.add("-ffile-prefix-map=${root}=.")
-          android.defaultConfig.externalNativeBuild.cmake.cppFlags.add("-ffile-prefix-map=${root}=.")
-        }
-      }
-    }
+if (GradleVersion.current() >= GradleVersion.version('8.8')) {
+  beforeSettings { settings ->
+    settings.caches.buildCache.setRemoveUnusedEntriesAfterDays(3)
+    settings.caches.cleanup = Cleanup.ALWAYS
   }
 }

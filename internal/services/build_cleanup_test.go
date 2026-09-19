@@ -83,7 +83,7 @@ func TestBuildCacheCleanupRetriesBucketFailure(t *testing.T) {
 	ctx := context.Background()
 	ref := bucket.BuildCacheObject{AppID: uuid.NewString(), IdentifierID: uuid.NewString(), Namespace: types.BuildCacheGradle, ID: uuid.NewString()}
 	key := ref.Key()
-	_, err := pool.Exec(ctx, "INSERT INTO build_cache_cleanup (id, app_id, app_identifier_id, namespace, due_at) VALUES ($1, $2, $3, $4, now())", ref.ID, ref.AppID, ref.IdentifierID, ref.Namespace)
+	_, err := pool.Exec(ctx, "INSERT INTO build_cache_cleanup (id, app_id, app_identifier_id, namespace, size, due_at) VALUES ($1, $2, $3, $4, 2048, now())", ref.ID, ref.AppID, ref.IdentifierID, ref.Namespace)
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, "DELETE FROM build_cache_cleanup WHERE id = $1", ref.ID) })
 	deleter.failOn[key] = errors.New("bucket unavailable")

@@ -2,7 +2,12 @@
 SELECT id FROM app_identifiers WHERE app_id = $1 AND id = $2 FOR UPDATE;
 
 -- name: BuildCacheUsage :one
-SELECT COALESCE(sum(size), 0)::bigint FROM build_cache_objects WHERE app_id = $1 AND app_identifier_id = $2;
+SELECT COALESCE(sum(size), 0)::bigint AS bytes, count(*) AS objects
+FROM (
+    SELECT active.size FROM build_cache_objects AS active WHERE active.app_id = $1 AND active.app_identifier_id = $2
+    UNION ALL
+    SELECT retired.size FROM build_cache_cleanup AS retired WHERE retired.app_id = $1 AND retired.app_identifier_id = $2
+) AS retained;
 
 -- name: InsertBuildCacheObject :one
 INSERT INTO build_cache_objects (id, app_id, app_identifier_id, namespace, cache_key, size, sha256)

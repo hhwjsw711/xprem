@@ -434,11 +434,11 @@ func TestBuildRegistryRoutesRequireBuildCreate(t *testing.T) {
 		{http.MethodPost, "/artifacts/" + buildID + "/failed", `{"finishedAt":"2026-09-08T10:00:00Z"}`},
 		{http.MethodPost, "/artifacts/" + buildID + "/complete", ""},
 		{http.MethodPut, "/artifacts/" + buildID + "/upload", "artifact bytes"},
-		{http.MethodPost, "/cache/uploads", `{"namespace":"gradle","key":"` + strings.Repeat("a", 32) + `","size":1,"sha256":"` + strings.Repeat("a", 64) + `"}`},
+		{http.MethodPost, "/cache/uploads", `{"namespace":"gradle","key":"archive-v1-` + strings.Repeat("a", 64) + `","size":1,"sha256":"` + strings.Repeat("a", 64) + `"}`},
 		{http.MethodPost, "/cache/uploads/" + buildID + "/complete", ""},
 		{http.MethodPut, "/cache/uploads/" + buildID, "cache bytes"},
 		{http.MethodGet, "/cache/uploads/" + buildID + "/download", ""},
-		{http.MethodGet, "/cache/gradle/" + strings.Repeat("a", 32), ""},
+		{http.MethodGet, "/cache/gradle/archive-v1-" + strings.Repeat("a", 64), ""},
 	}
 	granted := apikeyrestrictions.ApiKeyAccess{ApiKeyID: 42, BuildRules: []apikeyrestrictions.BuildRule{{AppIdentifierID: buildID, Actions: []apikeyrestrictions.BuildAction{apikeyrestrictions.BuildActionCreate}}}}
 	elsewhere := apikeyrestrictions.ApiKeyAccess{ApiKeyID: 42, BuildRules: []apikeyrestrictions.BuildRule{{AppIdentifierID: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", Actions: []apikeyrestrictions.BuildAction{apikeyrestrictions.BuildActionCreate}}}}

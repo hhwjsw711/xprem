@@ -178,6 +178,7 @@ type BuildCacheCleanup struct {
 	AppID           pgtype.UUID               `json:"app_id"`
 	AppIdentifierID pgtype.UUID               `json:"app_identifier_id"`
 	Namespace       types.BuildCacheNamespace `json:"namespace"`
+	Size            int64                     `json:"size"`
 	DueAt           pgtype.Timestamptz        `json:"due_at"`
 }
 

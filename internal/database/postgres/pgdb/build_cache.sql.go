@@ -13,7 +13,12 @@ import (
 )
 
 const buildCacheUsage = `-- name: BuildCacheUsage :one
-SELECT COALESCE(sum(size), 0)::bigint FROM build_cache_objects WHERE app_id = $1 AND app_identifier_id = $2
+SELECT COALESCE(sum(size), 0)::bigint AS bytes, count(*) AS objects
+FROM (
+    SELECT active.size FROM build_cache_objects AS active WHERE active.app_id = $1 AND active.app_identifier_id = $2
+    UNION ALL
+    SELECT retired.size FROM build_cache_cleanup AS retired WHERE retired.app_id = $1 AND retired.app_identifier_id = $2
+) AS retained
 `
 
 type BuildCacheUsageParams struct {
@@ -21,11 +26,16 @@ type BuildCacheUsageParams struct {
 	AppIdentifierID pgtype.UUID `json:"app_identifier_id"`
 }
 
-func (q *Queries) BuildCacheUsage(ctx context.Context, arg BuildCacheUsageParams) (int64, error) {
+type BuildCacheUsageRow struct {
+	Bytes   int64 `json:"bytes"`
+	Objects int64 `json:"objects"`
+}
+
+func (q *Queries) BuildCacheUsage(ctx context.Context, arg BuildCacheUsageParams) (BuildCacheUsageRow, error) {
 	row := q.db.QueryRow(ctx, buildCacheUsage, arg.AppID, arg.AppIdentifierID)
-	var column_1 int64
-	err := row.Scan(&column_1)
-	return column_1, err
+	var i BuildCacheUsageRow
+	err := row.Scan(&i.Bytes, &i.Objects)
+	return i, err
 }
 
 const deleteBuildCacheCleanup = `-- name: DeleteBuildCacheCleanup :exec
@@ -53,7 +63,7 @@ func (q *Queries) DeleteBuildCacheObject(ctx context.Context, arg DeleteBuildCac
 }
 
 const dueBuildCacheCleanup = `-- name: DueBuildCacheCleanup :many
-SELECT id, app_id, app_identifier_id, namespace, due_at FROM build_cache_cleanup WHERE due_at <= now() ORDER BY due_at LIMIT 4 FOR UPDATE SKIP LOCKED
+SELECT id, app_id, app_identifier_id, namespace, size, due_at FROM build_cache_cleanup WHERE due_at <= now() ORDER BY due_at LIMIT 4 FOR UPDATE SKIP LOCKED
 `
 
 func (q *Queries) DueBuildCacheCleanup(ctx context.Context) ([]BuildCacheCleanup, error) {
@@ -70,6 +80,7 @@ func (q *Queries) DueBuildCacheCleanup(ctx context.Context) ([]BuildCacheCleanup
 			&i.AppID,
 			&i.AppIdentifierID,
 			&i.Namespace,
+			&i.Size,
 			&i.DueAt,
 		); err != nil {
 			return nil, err

@@ -23,14 +23,16 @@ CREATE TABLE build_cache_cleanup (
     app_id UUID NOT NULL,
     app_identifier_id UUID NOT NULL,
     namespace TEXT NOT NULL CHECK (namespace IN ('gradle', 'ccache')),
+    size BIGINT NOT NULL CHECK (size BETWEEN 1 AND 536870912),
     due_at TIMESTAMPTZ NOT NULL DEFAULT now() + interval '20 minutes'
 );
 CREATE INDEX build_cache_cleanup_due ON build_cache_cleanup (due_at);
+CREATE INDEX build_cache_cleanup_owner ON build_cache_cleanup (app_id, app_identifier_id);
 -- +goose StatementBegin
 CREATE FUNCTION enqueue_build_cache_cleanup() RETURNS trigger AS $$
 BEGIN
-    INSERT INTO build_cache_cleanup (id, app_id, app_identifier_id, namespace)
-    VALUES (OLD.id, OLD.app_id, OLD.app_identifier_id, OLD.namespace);
+    INSERT INTO build_cache_cleanup (id, app_id, app_identifier_id, namespace, size)
+    VALUES (OLD.id, OLD.app_id, OLD.app_identifier_id, OLD.namespace, OLD.size);
     RETURN OLD;
 END;
 $$ LANGUAGE plpgsql;

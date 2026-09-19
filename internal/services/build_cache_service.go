@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
-	"regexp"
 	"time"
 	"xprem/internal/bucket"
 	"xprem/internal/store"
@@ -18,8 +17,6 @@ import (
 
 var ErrBuildCacheIntegrity = errors.New("cache object size or SHA-256 does not match")
 var ErrBuildCachePending = errors.New("cache object is not published")
-var gradleCacheKey = regexp.MustCompile(`^[a-f0-9]{32}$`)
-var ccacheKey = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,128}$`)
 
 type BuildCacheRepository interface {
 	Reserve(context.Context, types.BuildCacheObject) (*types.BuildCacheObject, error)
@@ -51,13 +48,6 @@ type BuildCacheUpload struct {
 	Cached bool                    `json:"cached"`
 }
 
-func validateCacheKey(namespace types.BuildCacheNamespace, key string) error {
-	if (namespace == types.BuildCacheGradle && gradleCacheKey.MatchString(key)) || (namespace == types.BuildCacheCcache && ccacheKey.MatchString(key)) {
-		return nil
-	}
-	return validation.Errorf("cache", "unsupported namespace or invalid key")
-}
-
 func cacheRef(object types.BuildCacheObject) bucket.BuildCacheObject {
 	return bucket.BuildCacheObject{AppID: object.AppID, IdentifierID: object.AppIdentifierID, Namespace: object.Namespace, ID: object.ID}
 }
@@ -66,11 +56,11 @@ func (s *BuildCacheService) Reserve(ctx context.Context, appID, identifierID str
 	if s.repo == nil {
 		return nil, store.ErrNotSupportedInStatelessMode
 	}
-	if err := validateCacheKey(input.Namespace, input.Key); err != nil {
-		return nil, err
-	}
 	if input.Size <= 0 || input.Size > types.MaxBuildCacheObjectBytes || !buildHash.MatchString(input.SHA256) {
 		return nil, validation.Errorf("cache", "invalid size or SHA-256")
+	}
+	if err := validateCacheUpload(input); err != nil {
+		return nil, err
 	}
 	previous, err := s.repo.Find(ctx, appID, identifierID, input.Namespace, input.Key)
 	var missing *store.ErrResourceNotFound
@@ -125,16 +115,22 @@ func (s *BuildCacheService) Complete(ctx context.Context, appID, identifierID, i
 	}
 	defer file.Reader.Close()
 	hash := sha256.New()
-	size, err := io.Copy(hash, io.LimitReader(file.Reader, object.Size+1))
+	limited := &io.LimitedReader{R: file.Reader, N: object.Size + 1}
+	reader := io.TeeReader(limited, hash)
+	contentErr := validateCacheContent(object.Namespace, reader)
+	_, err = io.Copy(io.Discard, reader)
 	if err != nil {
 		return nil, err
 	}
-	if size != object.Size || hex.EncodeToString(hash.Sum(nil)) != object.SHA256 {
+	if limited.N != 1 || hex.EncodeToString(hash.Sum(nil)) != object.SHA256 {
+		contentErr = ErrBuildCacheIntegrity
+	}
+	if contentErr != nil {
 		// The outbox waits for the signed URL to expire before deleting bytes.
 		if err := s.repo.Delete(ctx, *object); err != nil {
 			return nil, err
 		}
-		return nil, ErrBuildCacheIntegrity
+		return nil, contentErr
 	}
 	return s.repo.Publish(ctx, *object)
 }

@@ -30,7 +30,7 @@ func renderBuildCacheError(w http.ResponseWriter, err error) {
 		RenderError(w, http.StatusConflict, err.Error())
 	case errors.Is(err, store.ErrBuildCacheFull):
 		RenderError(w, http.StatusRequestEntityTooLarge, err.Error())
-	case validation.IsValidationError(err), errors.Is(err, services.ErrBuildCacheIntegrity), errors.Is(err, bucket.ErrCacheDirectUploadRequired):
+	case validation.IsValidationError(err), errors.Is(err, services.ErrBuildCacheIntegrity), errors.Is(err, services.ErrBuildCacheArchive), errors.Is(err, bucket.ErrCacheDirectUploadRequired):
 		RenderError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, store.ErrNotSupportedInStatelessMode):
 		RenderError(w, http.StatusBadRequest, err.Error())

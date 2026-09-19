@@ -42,7 +42,7 @@ func (s *PostgresBuildCacheStore) Reserve(ctx context.Context, object types.Buil
 		if err != nil {
 			return err
 		}
-		if used+object.Size > types.MaxBuildCacheBytes {
+		if used.Bytes+object.Size > types.MaxBuildCacheBytes || used.Objects >= types.MaxBuildCacheObjects {
 			return ErrBuildCacheFull
 		}
 		saved, err = cacheObject(q.InsertBuildCacheObject(ctx, pgdb.InsertBuildCacheObjectParams{ID: ToPgUUID(object.ID), AppID: ToPgUUID(object.AppID), AppIdentifierID: ToPgUUID(object.AppIdentifierID), Namespace: object.Namespace, CacheKey: object.CacheKey, Size: object.Size, Sha256: object.SHA256}))
@@ -71,8 +71,8 @@ func (s *PostgresBuildCacheStore) Publish(ctx context.Context, object types.Buil
 		if err != nil || saved.PublishedAt != nil {
 			return err
 		}
-		// ccache manifests can change under the same key. Publish a new immutable
-		// object, then retire the previous one through the cleanup outbox.
+		// Replace the previous object atomically; its bytes remain available
+		// for in-flight downloads until the cleanup outbox deletes them.
 		if err = q.RemovePreviousBuildCacheObject(ctx, pgdb.RemovePreviousBuildCacheObjectParams{AppID: app, AppIdentifierID: identifier, Namespace: saved.Namespace, CacheKey: saved.CacheKey, ID: id}); err != nil {
 			return err
 		}

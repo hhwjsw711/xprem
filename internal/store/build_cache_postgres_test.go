@@ -1,6 +1,8 @@
 package store_test
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"fmt"
@@ -18,6 +20,7 @@ import (
 	"xprem/internal/services"
 	"xprem/internal/store"
 	"xprem/internal/types"
+	"xprem/internal/validation"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
@@ -31,12 +34,13 @@ func TestBuildCachePublicationAndReplacement(t *testing.T) {
 	repo := store.NewPostgresBuildCacheStore(&database.Engine{Queries: pgdb.New(f.pool), DB: f.pool})
 	storage := &bucket.LocalBucket{BasePath: t.TempDir()}
 	service := services.NewBuildCacheService(repo, storage)
-	input := services.BuildCacheInput{Namespace: types.BuildCacheCcache, Key: "manifest", Size: 5, SHA256: fmt.Sprintf("%x", sha256.Sum256([]byte("first")))}
+	first := buildCacheArchive(t, "first")
+	input := services.BuildCacheInput{Namespace: types.BuildCacheCcache, Key: "archive-v1-" + strings.Repeat("a", 64), Size: int64(len(first)), SHA256: fmt.Sprintf("%x", sha256.Sum256([]byte(first)))}
 	upload, err := service.Reserve(ctx, f.app, f.identifier, input)
 	require.NoError(t, err)
 	_, err = service.Find(ctx, f.app, f.identifier, input.Namespace, input.Key)
 	require.Error(t, err, "unverified uploads are never cache hits")
-	require.NoError(t, service.UploadLocal(ctx, f.app, f.identifier, upload.Object.ID, strings.NewReader("first")))
+	require.NoError(t, service.UploadLocal(ctx, f.app, f.identifier, upload.Object.ID, strings.NewReader(first)))
 	_, err = service.Complete(ctx, f.app, f.identifier, upload.Object.ID)
 	require.NoError(t, err)
 	_, err = service.Complete(ctx, f.app, f.identifier, upload.Object.ID)
@@ -46,15 +50,12 @@ func TestBuildCachePublicationAndReplacement(t *testing.T) {
 	require.True(t, duplicate.Cached)
 	require.Equal(t, upload.Object.ID, duplicate.Object.ID)
 	require.Error(t, service.UploadLocal(ctx, f.app, f.identifier, upload.Object.ID, strings.NewReader("evil!")))
-	_, err = service.Get(ctx, uuid.NewString(), f.identifier, upload.Object.ID)
-	require.Error(t, err)
-	_, err = service.Find(ctx, f.app, uuid.NewString(), input.Namespace, input.Key)
-	require.Error(t, err)
 
-	input.SHA256 = fmt.Sprintf("%x", sha256.Sum256([]byte("later")))
+	later := buildCacheArchive(t, "later")
+	input.SHA256 = fmt.Sprintf("%x", sha256.Sum256([]byte(later)))
 	newUpload, err := service.Reserve(ctx, f.app, f.identifier, input)
 	require.NoError(t, err)
-	require.NoError(t, service.UploadLocal(ctx, f.app, f.identifier, newUpload.Object.ID, strings.NewReader("later")))
+	require.NoError(t, service.UploadLocal(ctx, f.app, f.identifier, newUpload.Object.ID, strings.NewReader(later)))
 	_, err = service.Complete(ctx, f.app, f.identifier, newUpload.Object.ID)
 	require.NoError(t, err)
 	found, err := service.Find(ctx, f.app, f.identifier, input.Namespace, input.Key)
@@ -64,22 +65,38 @@ func TestBuildCachePublicationAndReplacement(t *testing.T) {
 	require.NoError(t, f.pool.QueryRow(ctx, "SELECT count(*) FROM build_cache_cleanup WHERE id = $1", upload.Object.ID).Scan(&queued))
 	require.Equal(t, 1, queued)
 
-	// A corrupt replacement must leave the last verified manifest available.
-	input.SHA256 = fmt.Sprintf("%x", sha256.Sum256([]byte("third")))
-	bad, err := service.Reserve(ctx, f.app, f.identifier, input)
-	require.NoError(t, err)
-	require.NoError(t, service.UploadLocal(ctx, f.app, f.identifier, bad.Object.ID, strings.NewReader("wrong")))
-	_, err = service.Complete(ctx, f.app, f.identifier, bad.Object.ID)
-	require.ErrorIs(t, err, services.ErrBuildCacheIntegrity)
-	found, err = service.Find(ctx, f.app, f.identifier, input.Namespace, input.Key)
-	require.NoError(t, err)
-	require.Equal(t, newUpload.Object.ID, found.ID)
+	invalid := strings.Repeat("not a TAR archive\n", 64)
+	for _, rejected := range []struct {
+		name, declared, uploaded string
+		err                      error
+	}{
+		{"checksum mismatch", buildCacheArchive(t, "third"), buildCacheArchive(t, "wrong"), services.ErrBuildCacheIntegrity},
+		{"invalid archive with matching checksum", invalid, invalid, services.ErrBuildCacheArchive},
+	} {
+		t.Run(rejected.name, func(t *testing.T) {
+			input.Size = int64(len(rejected.declared))
+			input.SHA256 = fmt.Sprintf("%x", sha256.Sum256([]byte(rejected.declared)))
+			bad, err := service.Reserve(ctx, f.app, f.identifier, input)
+			require.NoError(t, err)
+			require.NoError(t, service.UploadLocal(ctx, f.app, f.identifier, bad.Object.ID, strings.NewReader(rejected.uploaded)))
+			_, err = service.Complete(ctx, f.app, f.identifier, bad.Object.ID)
+			require.ErrorIs(t, err, rejected.err)
+			found, err := service.Find(ctx, f.app, f.identifier, input.Namespace, input.Key)
+			require.NoError(t, err)
+			require.Equal(t, newUpload.Object.ID, found.ID, "a rejected replacement must leave the published archive available")
+			_, err = service.Get(ctx, f.app, f.identifier, bad.Object.ID)
+			var missing *store.ErrResourceNotFound
+			require.ErrorAs(t, err, &missing)
+			require.NoError(t, f.pool.QueryRow(ctx, "SELECT count(*) FROM build_cache_cleanup WHERE id = $1", bad.Object.ID).Scan(&queued))
+			require.Equal(t, 1, queued)
+		})
+	}
 
 	// App deletion retains a bucket cleanup record after all foreign keys cascade.
 	_, err = f.pool.Exec(ctx, "DELETE FROM apps WHERE id = $1", f.app)
 	require.NoError(t, err)
 	require.NoError(t, f.pool.QueryRow(ctx, "SELECT count(*) FROM build_cache_cleanup WHERE app_id = $1", f.app).Scan(&queued))
-	require.Equal(t, 3, queued)
+	require.Equal(t, 4, queued)
 	_, err = f.pool.Exec(ctx, "UPDATE build_cache_cleanup SET due_at = now() WHERE app_id = $1", f.app)
 	require.NoError(t, err)
 	cleanup := services.NewBuildCleanup(f.pool, storage)
@@ -88,6 +105,70 @@ func TestBuildCachePublicationAndReplacement(t *testing.T) {
 	file, err := storage.GetBuildCache(ctx, bucket.BuildCacheObject{AppID: f.app, IdentifierID: f.identifier, Namespace: input.Namespace, ID: newUpload.Object.ID})
 	require.NoError(t, err)
 	require.Nil(t, file)
+}
+
+func TestBuildCacheRejectsInvalidInput(t *testing.T) {
+	ctx := context.Background()
+	// Invalid input must fail before either storage dependency is used.
+	service := services.NewBuildCacheService(store.NewPostgresBuildCacheStore(nil), nil)
+	for _, entry := range []struct {
+		namespace types.BuildCacheNamespace
+		key       string
+	}{
+		{types.BuildCacheGradle, strings.Repeat("a", 32)},
+		{types.BuildCacheCcache, strings.Repeat("b", 40) + "R"},
+		{"unknown", "archive-v1-" + strings.Repeat("a", 64)},
+	} {
+		t.Run(string(entry.namespace), func(t *testing.T) {
+			_, err := service.Find(ctx, "app", "identifier", entry.namespace, entry.key)
+			require.True(t, validation.IsValidationError(err))
+			_, err = service.Reserve(ctx, "app", "identifier", services.BuildCacheInput{Namespace: entry.namespace, Key: entry.key, Size: 1024, SHA256: strings.Repeat("a", 64)})
+			require.True(t, validation.IsValidationError(err))
+		})
+	}
+	for _, namespace := range []types.BuildCacheNamespace{types.BuildCacheGradle, types.BuildCacheCcache} {
+		t.Run(string(namespace)+"/undersized archive", func(t *testing.T) {
+			_, err := service.Reserve(ctx, "app", "identifier", services.BuildCacheInput{Namespace: namespace, Key: "archive-v1-" + strings.Repeat("a", 64), Size: 1023, SHA256: strings.Repeat("a", 64)})
+			require.True(t, validation.IsValidationError(err))
+		})
+	}
+}
+
+func TestBuildCacheConcurrentArchivePublication(t *testing.T) {
+	f := setupBuildStore(t)
+	ctx := context.Background()
+	repo := store.NewPostgresBuildCacheStore(&database.Engine{Queries: pgdb.New(f.pool), DB: f.pool})
+	service := services.NewBuildCacheService(repo, &bucket.LocalBucket{BasePath: t.TempDir()})
+	key := "archive-v1-" + strings.Repeat("a", 64)
+	ids := make([]string, 0, 2)
+	for _, content := range []string{"first", "later"} {
+		content = buildCacheArchive(t, content)
+		upload, err := service.Reserve(ctx, f.app, f.identifier, services.BuildCacheInput{Namespace: types.BuildCacheGradle, Key: key, Size: int64(len(content)), SHA256: fmt.Sprintf("%x", sha256.Sum256([]byte(content)))})
+		require.NoError(t, err)
+		require.NoError(t, service.UploadLocal(ctx, f.app, f.identifier, upload.Object.ID, strings.NewReader(content)))
+		ids = append(ids, upload.Object.ID)
+	}
+	ready := make(chan struct{})
+	errors := make(chan error, len(ids))
+	for _, id := range ids {
+		go func() {
+			<-ready
+			_, err := service.Complete(ctx, f.app, f.identifier, id)
+			errors <- err
+		}()
+	}
+	close(ready)
+	for range ids {
+		require.NoError(t, <-errors)
+	}
+	found, err := service.Find(ctx, f.app, f.identifier, types.BuildCacheGradle, key)
+	require.NoError(t, err)
+	require.Contains(t, ids, found.ID)
+	var published, queued int
+	require.NoError(t, f.pool.QueryRow(ctx, "SELECT count(*) FROM build_cache_objects WHERE app_id = $1 AND published_at IS NOT NULL", f.app).Scan(&published))
+	require.Equal(t, 1, published)
+	require.NoError(t, f.pool.QueryRow(ctx, "SELECT count(*) FROM build_cache_cleanup WHERE app_id = $1", f.app).Scan(&queued))
+	require.Equal(t, 1, queued)
 }
 
 func TestBuildCacheConcurrentReservationsRespectQuota(t *testing.T) {
@@ -100,7 +181,7 @@ func TestBuildCacheConcurrentReservationsRespectQuota(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, err := repo.Reserve(ctx, types.BuildCacheObject{ID: uuid.NewString(), AppID: f.app, AppIdentifierID: f.identifier, Namespace: types.BuildCacheGradle, CacheKey: strings.Repeat("a", 32), Size: types.MaxBuildCacheObjectBytes, SHA256: strings.Repeat("b", 64)})
+			_, err := repo.Reserve(ctx, types.BuildCacheObject{ID: uuid.NewString(), AppID: f.app, AppIdentifierID: f.identifier, Namespace: types.BuildCacheGradle, CacheKey: "archive-v1-" + strings.Repeat("a", 64), Size: types.MaxBuildCacheObjectBytes, SHA256: strings.Repeat("b", 64)})
 			errors <- err
 		}()
 	}
@@ -125,7 +206,7 @@ func TestBuildCacheRejectsUnknownNamespace(t *testing.T) {
 	var constraint *pgconn.PgError
 	require.ErrorAs(t, err, &constraint)
 	require.Equal(t, "23514", constraint.Code)
-	_, err = f.pool.Exec(ctx, "INSERT INTO build_cache_cleanup (id, app_id, app_identifier_id, namespace) VALUES ($1, $2, $3, 'unknown')", uuid.NewString(), f.app, f.identifier)
+	_, err = f.pool.Exec(ctx, "INSERT INTO build_cache_cleanup (id, app_id, app_identifier_id, namespace, size) VALUES ($1, $2, $3, 'unknown', 1)", uuid.NewString(), f.app, f.identifier)
 	require.ErrorAs(t, err, &constraint)
 	require.Equal(t, "23514", constraint.Code)
 }
@@ -141,7 +222,7 @@ func TestBuildCacheHTTPRejectsForeignAndExpiredUploads(t *testing.T) {
 	storage := &bucket.LocalBucket{BasePath: t.TempDir()}
 	service := services.NewBuildCacheService(repo, storage)
 	handler := handlers.NewBuildCacheHandler(service)
-	const content = "private compiled bytes"
+	content := buildCacheArchive(t, "private compiled bytes")
 
 	for _, scope := range []struct {
 		name, app, identifier string
@@ -153,7 +234,7 @@ func TestBuildCacheHTTPRejectsForeignAndExpiredUploads(t *testing.T) {
 	} {
 		for _, published := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/published=%t", scope.name, published), func(t *testing.T) {
-				input := services.BuildCacheInput{Namespace: types.BuildCacheCcache, Key: uuid.NewString(), Size: int64(len(content)), SHA256: fmt.Sprintf("%x", sha256.Sum256([]byte(content)))}
+				input := services.BuildCacheInput{Namespace: types.BuildCacheCcache, Key: fmt.Sprintf("archive-v1-%x", sha256.Sum256([]byte(uuid.NewString()))), Size: int64(len(content)), SHA256: fmt.Sprintf("%x", sha256.Sum256([]byte(content)))}
 				upload, err := service.Reserve(ctx, owner.app, owner.identifier, input)
 				require.NoError(t, err)
 				id := upload.Object.ID
@@ -216,4 +297,16 @@ func TestBuildCacheHTTPRejectsForeignAndExpiredUploads(t *testing.T) {
 			})
 		}
 	}
+}
+
+func buildCacheArchive(t *testing.T, content string) string {
+	t.Helper()
+	var archive bytes.Buffer
+	writer := tar.NewWriter(&archive)
+	require.NoError(t, writer.WriteHeader(&tar.Header{Name: "./", Typeflag: tar.TypeDir, Mode: 0o755}))
+	require.NoError(t, writer.WriteHeader(&tar.Header{Name: "./result", Typeflag: tar.TypeReg, Mode: 0o600, Size: int64(len(content))}))
+	_, err := writer.Write([]byte(content))
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+	return archive.String()
 }
