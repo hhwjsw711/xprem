@@ -14,7 +14,7 @@ import (
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
-func (b *S3Bucket) GetInstanceID() (string, error) {
+func (b *S3Bucket) GetInstanceID(ctx context.Context) (string, error) {
 	if b.BucketName == "" {
 		return "", errors.New("BucketName not set")
 	}
@@ -22,7 +22,7 @@ func (b *S3Bucket) GetInstanceID() (string, error) {
 	if errS3 != nil {
 		return "", errS3
 	}
-	resp, err := s3Client.GetObject(context.TODO(), &s3.GetObjectInput{
+	resp, err := s3Client.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: awssdk.String(b.BucketName),
 		Key:    awssdk.String(b.prefixedKey(".instanceid")),
 	})
@@ -41,7 +41,7 @@ func (b *S3Bucket) GetInstanceID() (string, error) {
 	return strings.TrimSpace(string(content)), nil
 }
 
-func (b *S3Bucket) PersistInstanceID(id string) error {
+func (b *S3Bucket) PersistInstanceID(ctx context.Context, id string) error {
 	if b.BucketName == "" {
 		return errors.New("BucketName not set")
 	}
@@ -49,7 +49,7 @@ func (b *S3Bucket) PersistInstanceID(id string) error {
 	if errS3 != nil {
 		return errS3
 	}
-	_, err := s3Client.PutObject(context.TODO(), &s3.PutObjectInput{
+	_, err := s3Client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket: awssdk.String(b.BucketName),
 		Key:    awssdk.String(b.prefixedKey(".instanceid")),
 		Body:   bytes.NewReader([]byte(id + "\n")),

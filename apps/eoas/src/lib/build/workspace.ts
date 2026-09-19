@@ -36,6 +36,9 @@ export async function withTemporaryDirectory<T>(
     buildLog.abort();
     buildLog.general.write('Build interrupted.');
     void terminateBuildCommand()
+      .catch(() => {
+        buildLog.general.warn('Could not stop all build processes.');
+      })
       .then(() => buildLog.close())
       .finally(() => cleanup().finally(() => process.exit(130)));
   };

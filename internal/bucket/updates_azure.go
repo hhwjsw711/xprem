@@ -220,7 +220,8 @@ func (b *AzureBucket) CreateUpdateFrom(previousUpdate *types.Update, newUpdateId
 	if newUpdateId == "" {
 		return nil, errors.New("newUpdateId is empty")
 	}
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	cc, err := b.containerClient()
 	if err != nil {
 		return nil, err
@@ -236,6 +237,9 @@ func (b *AzureBucket) CreateUpdateFrom(previousUpdate *types.Update, newUpdateId
 	for pager.More() {
 		page, err := pager.NextPage(ctx)
 		if err != nil {
+			cancel()
+			wg.Wait()
+			close(errChan)
 			return nil, fmt.Errorf("failed to list blobs: %w", err)
 		}
 		for _, item := range page.Segment.BlobItems {

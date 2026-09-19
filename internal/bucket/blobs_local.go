@@ -31,12 +31,12 @@ func (b *LocalBucket) PutBlob(_ context.Context, appId, hash string, body io.Rea
 // ErrBlobHashMismatch reports a blob whose bytes do not hash to its name.
 var ErrBlobHashMismatch = errors.New("uploaded blob does not match its hash")
 
-func (b *LocalBucket) RequestBlobUploadURL(appId, hash, branch string) (*UploadRequest, error) {
+func (b *LocalBucket) RequestBlobUploadURL(_ context.Context, appId, hash, branch string) (*UploadRequest, error) {
 	if b.BasePath == "" {
 		return nil, errors.New("BasePath not set")
 	}
 	dirPath := filepath.Join(b.rootPath(), appId, casDir)
-	if err := os.MkdirAll(dirPath, os.ModePerm); err != nil {
+	if err := os.MkdirAll(dirPath, 0o700); err != nil {
 		return nil, err
 	}
 	return b.localUploadRequest(appId, branch, filepath.Join(dirPath, hash))

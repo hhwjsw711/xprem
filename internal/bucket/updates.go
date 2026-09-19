@@ -1,6 +1,7 @@
 package bucket
 
 import (
+	"context"
 	"io"
 	"path/filepath"
 	"sync"
@@ -54,7 +55,7 @@ type UploadFile struct {
 // RequestUploadUrlsForFileUpdates presigns one publish's uploads, routing each
 // file by where it lives: cas/{hash} for content-addressed files, the update
 // folder for the rest.
-func RequestUploadUrlsForFileUpdates(appId, branch, runtimeVersion, updateId string, files []UploadFile) ([]FileUploadRequest, error) {
+func RequestUploadUrlsForFileUpdates(ctx context.Context, appId, branch, runtimeVersion, updateId string, files []UploadFile) ([]FileUploadRequest, error) {
 	resolvedBucket := GetBucket()
 
 	// Several files may name the same blob; presign it once.
@@ -82,7 +83,7 @@ func RequestUploadUrlsForFileUpdates(appId, branch, runtimeVersion, updateId str
 			if file.InUpdateFolder {
 				upload, err = resolvedBucket.RequestUploadUrlForFileUpdate(appId, branch, runtimeVersion, updateId, file.Name)
 			} else {
-				upload, err = resolvedBucket.RequestBlobUploadURL(appId, file.Hash, branch)
+				upload, err = resolvedBucket.RequestBlobUploadURL(ctx, appId, file.Hash, branch)
 			}
 			if err != nil {
 				errChan <- err

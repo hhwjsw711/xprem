@@ -10,8 +10,7 @@ import (
 	"cloud.google.com/go/storage"
 )
 
-func (b *GCSBucket) GetInstanceID() (string, error) {
-	ctx := context.Background()
+func (b *GCSBucket) GetInstanceID(ctx context.Context) (string, error) {
 	bh, err := b.bucketHandle(ctx)
 	if err != nil {
 		return "", err
@@ -31,8 +30,7 @@ func (b *GCSBucket) GetInstanceID() (string, error) {
 	return strings.TrimSpace(buf.String()), nil
 }
 
-func (b *GCSBucket) PersistInstanceID(id string) error {
-	ctx := context.Background()
+func (b *GCSBucket) PersistInstanceID(ctx context.Context, id string) error {
 	bh, err := b.bucketHandle(ctx)
 	if err != nil {
 		return err

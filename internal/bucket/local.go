@@ -107,7 +107,7 @@ func (b *LocalBucket) writeFile(filePath string, body io.Reader) error {
 // non-empty expectedHash must equal the base64url SHA-256 of the body.
 func writeFileAtomically(target string, body io.Reader, expectedHash string) error {
 	dir := filepath.Dir(target)
-	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
 	tmp, err := os.CreateTemp(dir, ".upload-")

@@ -46,7 +46,8 @@ func TestBuildArtifactDownloadURLs(t *testing.T) {
 		{"azure", &AzureBucket{ContainerName: "artifacts", KeyPrefix: "prefix/"}, "buildtest.blob.core.windows.net", "/artifacts/prefix/", "sig"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			cache := tc.storage.(BuildCacheStorage)
+			cache, ok := tc.storage.(BuildCacheStorage)
+			require.True(t, ok, "%T must implement BuildCacheStorage", tc.storage)
 			upload, err := cache.RequestBuildCacheUploadURL(context.Background(), BuildCacheObject{
 				AppID: testBuildID, IdentifierID: testIdentifierID, Namespace: types.BuildCacheGradle, ID: testBuildID,
 			})

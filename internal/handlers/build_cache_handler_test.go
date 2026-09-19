@@ -25,7 +25,7 @@ func TestBuildCacheLocalUploadRejectsCloudStorage(t *testing.T) {
 	bucket.ResetBucketInstance()
 	t.Cleanup(bucket.ResetBucketInstance)
 	handler := NewBuildCacheHandler(services.NewBuildCacheService(pendingCacheUploadRepo{}, bucket.GetBucket()))
-	req := httptest.NewRequest(http.MethodPut, "/cache/uploads/"+registryBuild, strings.NewReader("bytes"))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPut, "/cache/uploads/"+registryBuild, strings.NewReader("bytes"))
 	req = mux.SetURLVars(req, map[string]string{"APP_ID": registryApp, "UPLOAD_ID": registryBuild})
 	req = req.WithContext(services.WithBuildIdentifier(req.Context(), registryIdentifier))
 	response := httptest.NewRecorder()

@@ -26,7 +26,7 @@ func (b *GCSBucket) PutBlob(ctx context.Context, appId, hash string, body io.Rea
 	return b.putObject(ctx, b.blobKey(appId, hash), body)
 }
 
-func (b *GCSBucket) RequestBlobUploadURL(appId, hash, _ string) (*UploadRequest, error) {
+func (b *GCSBucket) RequestBlobUploadURL(_ context.Context, appId, hash, _ string) (*UploadRequest, error) {
 	if b.BucketName == "" {
 		return nil, errors.New("BucketName not set")
 	}

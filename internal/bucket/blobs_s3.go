@@ -29,7 +29,7 @@ func (b *S3Bucket) PutBlob(ctx context.Context, appId, hash string, body io.Read
 	return b.putObject(ctx, b.blobKey(appId, hash), body)
 }
 
-func (b *S3Bucket) RequestBlobUploadURL(appId, hash, _ string) (*UploadRequest, error) {
+func (b *S3Bucket) RequestBlobUploadURL(ctx context.Context, appId, hash, _ string) (*UploadRequest, error) {
 	if b.BucketName == "" {
 		return nil, errors.New("BucketName not set")
 	}
@@ -38,7 +38,7 @@ func (b *S3Bucket) RequestBlobUploadURL(appId, hash, _ string) (*UploadRequest, 
 		return nil, fmt.Errorf("error getting S3 client: %w", err)
 	}
 	presignClient := s3.NewPresignClient(s3Client)
-	presignResult, err := presignClient.PresignPutObject(context.TODO(), &s3.PutObjectInput{
+	presignResult, err := presignClient.PresignPutObject(ctx, &s3.PutObjectInput{
 		Bucket: awssdk.String(b.BucketName),
 		Key:    awssdk.String(b.blobKey(appId, hash)),
 	}, func(opt *s3.PresignOptions) {

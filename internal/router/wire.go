@@ -205,7 +205,7 @@ func InitDependencies(ctx context.Context) (*AppContainer, func()) {
 		environmentRepo = store.NewPostgresEnvironmentStore(dbEngine)
 
 		// Resolved even when telemetry is off: licensing needs the instance id.
-		seedInstanceId, _ := resolvedBucket.GetInstanceID()
+		seedInstanceId, _ := resolvedBucket.GetInstanceID(ctx)
 		instanceId, instanceIdErr = store.NewPostgresServerInstanceStore(dbEngine).GetOrCreateInstanceID(ctx, seedInstanceId)
 		if instanceIdErr != nil {
 			log.Printf("⚠️  [INSTANCE] Could not resolve the server instance id, license activation and heartbeats are unavailable this run: %v", instanceIdErr)

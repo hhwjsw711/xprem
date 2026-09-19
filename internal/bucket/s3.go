@@ -74,9 +74,13 @@ func (b *S3Bucket) deletePrefix(ctx context.Context, prefix string) error {
 			},
 		}
 
-		_, err := s3Client.DeleteObjects(ctx, deleteInput)
+		output, err := s3Client.DeleteObjects(ctx, deleteInput)
 		if err != nil {
 			return fmt.Errorf("failed to delete objects: %w", err)
+		}
+		if len(output.Errors) > 0 {
+			first := output.Errors[0]
+			return fmt.Errorf("failed to delete %d objects: key %q (%s): %s", len(output.Errors), awssdk.ToString(first.Key), awssdk.ToString(first.Code), awssdk.ToString(first.Message))
 		}
 	}
 
@@ -128,7 +132,7 @@ func (b *S3Bucket) getObject(ctx context.Context, key string) (*types.BucketFile
 	}
 	return &types.BucketFile{
 		Reader:    resp.Body,
-		CreatedAt: *resp.LastModified,
+		CreatedAt: awssdk.ToTime(resp.LastModified),
 	}, nil
 }
 

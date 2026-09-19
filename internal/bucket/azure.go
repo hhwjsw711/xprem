@@ -106,6 +106,8 @@ func (b *AzureBucket) deletePrefix(ctx context.Context, prefix string) error {
 	if err != nil {
 		return err
 	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	pager := cc.NewListBlobsFlatPager(&container.ListBlobsFlatOptions{Prefix: &prefix})
 	sem := make(chan struct{}, runtime.NumCPU())
 	var wg sync.WaitGroup
@@ -113,6 +115,9 @@ func (b *AzureBucket) deletePrefix(ctx context.Context, prefix string) error {
 	for pager.More() {
 		page, err := pager.NextPage(ctx)
 		if err != nil {
+			cancel()
+			wg.Wait()
+			close(errCh)
 			return fmt.Errorf("failed to list blobs: %w", err)
 		}
 		for _, item := range page.Segment.BlobItems {

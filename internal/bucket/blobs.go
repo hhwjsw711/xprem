@@ -24,5 +24,5 @@ type BlobStorage interface {
 	BlobExists(ctx context.Context, appId, hash string) (bool, error)
 	GetBlob(ctx context.Context, appId, hash string) (*types.BucketFile, error)
 	PutBlob(ctx context.Context, appId, hash string, body io.Reader) error
-	RequestBlobUploadURL(appId, hash, branch string) (*UploadRequest, error)
+	RequestBlobUploadURL(ctx context.Context, appId, hash, branch string) (*UploadRequest, error)
 }

@@ -1,13 +1,18 @@
 package bucket
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"xprem/internal/providers/aws"
 
 	awssdk "github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/smithy-go"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -89,11 +94,29 @@ func (b *S3Bucket) MoveRootEntriesUnder(appId string) error {
 		// S3 rejects with InvalidArgument.
 		source := b.BucketName + "/" + escapeKeyForCopySource(key)
 		if _, err := client.CopyObject(ctx, &s3.CopyObjectInput{
-			Bucket:     awssdk.String(b.BucketName),
-			CopySource: awssdk.String(source),
-			Key:        awssdk.String(newKey),
+			Bucket:      awssdk.String(b.BucketName),
+			CopySource:  awssdk.String(source),
+			Key:         awssdk.String(newKey),
+			IfNoneMatch: awssdk.String("*"),
 		}); err != nil {
-			return fmt.Errorf("copy %s -> %s: %w", key, newKey, err)
+			var apiErr smithy.APIError
+			if !errors.As(err, &apiErr) || apiErr.ErrorCode() != "PreconditionFailed" {
+				return fmt.Errorf("copy %s -> %s: %w", key, newKey, err)
+			}
+			// A previous run may have copied this object before failing to
+			// delete its source. Compare bytes before completing that move;
+			// ETags can change when S3 copies a multipart object.
+			sourceHash, readErr := migrationObjectHash(ctx, client, b.BucketName, key)
+			if readErr != nil {
+				return readErr
+			}
+			destinationHash, readErr := migrationObjectHash(ctx, client, b.BucketName, newKey)
+			if readErr != nil {
+				return readErr
+			}
+			if !bytes.Equal(sourceHash, destinationHash) {
+				return fmt.Errorf("copy %s -> %s: destination differs from source: %w", key, newKey, err)
+			}
 		}
 		if _, err := client.DeleteObject(ctx, &s3.DeleteObjectInput{
 			Bucket: awssdk.String(b.BucketName),
@@ -160,4 +183,20 @@ func (b *S3Bucket) MoveRootEntriesUnder(appId string) error {
 		gm.Go(func() error { return moveKey(gmctx, key) })
 	}
 	return gm.Wait()
+}
+
+func migrationObjectHash(ctx context.Context, client *s3.Client, bucketName, key string) ([]byte, error) {
+	object, err := client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: awssdk.String(bucketName),
+		Key:    awssdk.String(key),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("read %s to verify existing migration copy: %w", key, err)
+	}
+	defer object.Body.Close()
+	hash := sha256.New()
+	if _, err := io.Copy(hash, object.Body); err != nil {
+		return nil, fmt.Errorf("read %s to verify existing migration copy: %w", key, err)
+	}
+	return hash.Sum(nil), nil
 }

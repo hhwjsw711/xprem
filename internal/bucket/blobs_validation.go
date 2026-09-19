@@ -38,7 +38,7 @@ func (v *validatingBucket) PutBlob(ctx context.Context, appId, hash string, body
 	return v.Inner.PutBlob(ctx, appId, hash, body)
 }
 
-func (v *validatingBucket) RequestBlobUploadURL(appId, hash, branch string) (*UploadRequest, error) {
+func (v *validatingBucket) RequestBlobUploadURL(ctx context.Context, appId, hash, branch string) (*UploadRequest, error) {
 	if err := validateSegment("appId", appId); err != nil {
 		return nil, err
 	}
@@ -48,7 +48,7 @@ func (v *validatingBucket) RequestBlobUploadURL(appId, hash, branch string) (*Up
 	if err := validateBranch(branch); err != nil {
 		return nil, err
 	}
-	return v.Inner.RequestBlobUploadURL(appId, hash, branch)
+	return v.Inner.RequestBlobUploadURL(ctx, appId, hash, branch)
 }
 
 func ValidateBlobHash(hash string) error {

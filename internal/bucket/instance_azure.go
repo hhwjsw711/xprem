@@ -9,8 +9,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/bloberror"
 )
 
-func (b *AzureBucket) GetInstanceID() (string, error) {
-	ctx := context.Background()
+func (b *AzureBucket) GetInstanceID(ctx context.Context) (string, error) {
 	cc, err := b.containerClient()
 	if err != nil {
 		return "", err
@@ -30,8 +29,7 @@ func (b *AzureBucket) GetInstanceID() (string, error) {
 	return strings.TrimSpace(buf.String()), nil
 }
 
-func (b *AzureBucket) PersistInstanceID(id string) error {
-	ctx := context.Background()
+func (b *AzureBucket) PersistInstanceID(ctx context.Context, id string) error {
 	cc, err := b.containerClient()
 	if err != nil {
 		return err

@@ -28,7 +28,7 @@ func (b *AzureBucket) PutBlob(ctx context.Context, appId, hash string, body io.R
 	return b.putObject(ctx, b.blobKey(appId, hash), body)
 }
 
-func (b *AzureBucket) RequestBlobUploadURL(appId, hash, _ string) (*UploadRequest, error) {
+func (b *AzureBucket) RequestBlobUploadURL(_ context.Context, appId, hash, _ string) (*UploadRequest, error) {
 	if b.ContainerName == "" {
 		return nil, errors.New("ContainerName not set")
 	}

@@ -30,7 +30,7 @@ func (b *LocalBucket) RequestUploadUrlForFileUpdate(appId string, branch string,
 		return nil, errors.New("BasePath not set")
 	}
 	dirPath := filepath.Join(b.rootPath(), appId, branch, runtimeVersion, updateId)
-	err := os.MkdirAll(dirPath, os.ModePerm)
+	err := os.MkdirAll(dirPath, 0o700)
 	if err != nil {
 		return nil, err
 	}
@@ -44,7 +44,10 @@ func (b *LocalBucket) GetUpdates(appId string, branch string, runtimeVersion str
 	dirPath := filepath.Join(b.rootPath(), appId, branch, runtimeVersion)
 	entries, err := os.ReadDir(dirPath)
 	if err != nil {
-		return []types.Update{}, nil
+		if os.IsNotExist(err) {
+			return []types.Update{}, nil
+		}
+		return nil, err
 	}
 	var updates []types.Update
 	for _, entry := range entries {
@@ -171,7 +174,7 @@ func (b *LocalBucket) GetRuntimeVersions(appId string, branch string) ([]types.R
 
 func (b *LocalBucket) UploadFileIntoUpdate(update types.Update, fileName string, file io.Reader) error {
 	filePath := filepath.Join(b.rootPath(), update.AppId, update.Branch, update.RuntimeVersion, update.UpdateId, fileName)
-	err := os.MkdirAll(filepath.Dir(filePath), os.ModePerm)
+	err := os.MkdirAll(filepath.Dir(filePath), 0o700)
 	if err != nil {
 		return err
 	}
@@ -211,7 +214,7 @@ func (b *LocalBucket) CreateUpdateFrom(previousUpdate *types.Update, newUpdateId
 	previousUpdatePath := filepath.Join(b.rootPath(), previousUpdate.AppId, previousUpdate.Branch, previousUpdate.RuntimeVersion, previousUpdate.UpdateId)
 	newUpdatePath := filepath.Join(b.rootPath(), previousUpdate.AppId, previousUpdate.Branch, previousUpdate.RuntimeVersion, newUpdateId)
 
-	err := os.MkdirAll(newUpdatePath, os.ModePerm)
+	err := os.MkdirAll(newUpdatePath, 0o700)
 	if err != nil {
 		return nil, err
 	}
@@ -275,7 +278,7 @@ func (b *LocalBucket) CreateUpdateFrom(previousUpdate *types.Update, newUpdateId
 }
 
 func copyDirParallel(srcDir, dstDir string) error {
-	err := os.MkdirAll(dstDir, os.ModePerm)
+	err := os.MkdirAll(dstDir, 0o700)
 	if err != nil {
 		return err
 	}

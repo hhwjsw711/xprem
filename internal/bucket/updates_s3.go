@@ -40,56 +40,59 @@ func (b *S3Bucket) GetRuntimeVersions(appId string, branch string) ([]types.Runt
 		Prefix:    awssdk.String(branchPrefix),
 		Delimiter: awssdk.String("/"),
 	}
-	resp, err := s3Client.ListObjectsV2(context.TODO(), input)
-	if err != nil {
-		return nil, fmt.Errorf("ListObjectsV2 error: %w", err)
-	}
-
 	var runtimeVersions []types.RuntimeVersionWithStats
 	prefixLen := len(branchPrefix)
-
-	for _, commonPrefix := range resp.CommonPrefixes {
-		runtimeVersion := (*commonPrefix.Prefix)[prefixLen : len(*commonPrefix.Prefix)-1]
-		updatesPath := *commonPrefix.Prefix
-		updateInput := &s3.ListObjectsV2Input{
-			Bucket:    awssdk.String(b.BucketName),
-			Prefix:    awssdk.String(updatesPath),
-			Delimiter: awssdk.String("/"),
-		}
-		updateResp, err := s3Client.ListObjectsV2(context.TODO(), updateInput)
+	paginator := s3.NewListObjectsV2Paginator(s3Client, input)
+	for paginator.HasMorePages() {
+		resp, err := paginator.NextPage(context.TODO())
 		if err != nil {
-			return nil, fmt.Errorf("ListObjectsV2 error in updates: %w", err)
+			return nil, fmt.Errorf("ListObjectsV2 error: %w", err)
 		}
+		for _, commonPrefix := range resp.CommonPrefixes {
+			runtimeVersion := (*commonPrefix.Prefix)[prefixLen : len(*commonPrefix.Prefix)-1]
+			updatesPath := *commonPrefix.Prefix
+			updateInput := &s3.ListObjectsV2Input{
+				Bucket:    awssdk.String(b.BucketName),
+				Prefix:    awssdk.String(updatesPath),
+				Delimiter: awssdk.String("/"),
+			}
+			var updateTimestamps []int64
+			updatePaginator := s3.NewListObjectsV2Paginator(s3Client, updateInput)
+			for updatePaginator.HasMorePages() {
+				updateResp, err := updatePaginator.NextPage(context.TODO())
+				if err != nil {
+					return nil, fmt.Errorf("ListObjectsV2 error in updates: %w", err)
+				}
+				for _, commonPrefix := range updateResp.CommonPrefixes {
+					updateID := strings.TrimSuffix((*commonPrefix.Prefix)[len(updatesPath):], "/")
+					_, err := s3Client.HeadObject(context.TODO(), &s3.HeadObjectInput{
+						Bucket: awssdk.String(b.BucketName),
+						Key:    awssdk.String(*commonPrefix.Prefix + ".check"),
+					})
+					if err != nil {
+						continue
+					}
+					timestamp, err := strconv.ParseInt(updateID, 10, 64)
+					if err != nil {
+						continue
+					}
+					updateTimestamps = append(updateTimestamps, timestamp)
+				}
+			}
 
-		var updateTimestamps []int64
-		for _, commonPrefix := range updateResp.CommonPrefixes {
-			updateID := strings.TrimSuffix((*commonPrefix.Prefix)[len(updatesPath):], "/")
-			_, err := s3Client.HeadObject(context.TODO(), &s3.HeadObjectInput{
-				Bucket: awssdk.String(b.BucketName),
-				Key:    awssdk.String(*commonPrefix.Prefix + ".check"),
+			if len(updateTimestamps) == 0 {
+				continue
+			}
+
+			sort.Slice(updateTimestamps, func(i, j int) bool { return updateTimestamps[i] < updateTimestamps[j] })
+
+			runtimeVersions = append(runtimeVersions, types.RuntimeVersionWithStats{
+				RuntimeVersion:  runtimeVersion,
+				CreatedAt:       helpers.NormalizeTimestamp(updateTimestamps[0]).Format(time.RFC3339),
+				LastUpdatedAt:   helpers.NormalizeTimestamp(updateTimestamps[len(updateTimestamps)-1]).Format(time.RFC3339),
+				NumberOfUpdates: len(updateTimestamps),
 			})
-			if err != nil {
-				continue
-			}
-			timestamp, err := strconv.ParseInt(updateID, 10, 64)
-			if err != nil {
-				continue
-			}
-			updateTimestamps = append(updateTimestamps, timestamp)
 		}
-
-		if len(updateTimestamps) == 0 {
-			continue
-		}
-
-		sort.Slice(updateTimestamps, func(i, j int) bool { return updateTimestamps[i] < updateTimestamps[j] })
-
-		runtimeVersions = append(runtimeVersions, types.RuntimeVersionWithStats{
-			RuntimeVersion:  runtimeVersion,
-			CreatedAt:       helpers.NormalizeTimestamp(updateTimestamps[0]).Format(time.RFC3339),
-			LastUpdatedAt:   helpers.NormalizeTimestamp(updateTimestamps[len(updateTimestamps)-1]).Format(time.RFC3339),
-			NumberOfUpdates: len(updateTimestamps),
-		})
 	}
 
 	return runtimeVersions, nil
@@ -109,15 +112,18 @@ func (b *S3Bucket) GetBranches(appId string) ([]string, error) {
 		Prefix:    awssdk.String(appPrefix),
 		Delimiter: awssdk.String("/"),
 	}
-	resp, err := s3Client.ListObjectsV2(context.TODO(), input)
-	if err != nil {
-		return nil, fmt.Errorf("ListObjectsV2 error: %w", err)
-	}
 	var branches []string
-	for _, commonPrefix := range resp.CommonPrefixes {
-		prefix := *commonPrefix.Prefix
-		branch := strings.TrimPrefix(prefix[:len(prefix)-1], appPrefix)
-		branches = append(branches, branch)
+	paginator := s3.NewListObjectsV2Paginator(s3Client, input)
+	for paginator.HasMorePages() {
+		resp, err := paginator.NextPage(context.TODO())
+		if err != nil {
+			return nil, fmt.Errorf("ListObjectsV2 error: %w", err)
+		}
+		for _, commonPrefix := range resp.CommonPrefixes {
+			prefix := *commonPrefix.Prefix
+			branch := strings.TrimPrefix(prefix[:len(prefix)-1], appPrefix)
+			branches = append(branches, branch)
+		}
 	}
 	return branches, nil
 }
@@ -136,21 +142,24 @@ func (b *S3Bucket) GetUpdates(appId string, branch string, runtimeVersion string
 		Prefix:    awssdk.String(prefix),
 		Delimiter: awssdk.String("/"),
 	}
-	resp, err := s3Client.ListObjectsV2(context.TODO(), input)
-	if err != nil {
-		return nil, fmt.Errorf("ListObjectsV2 error: %w", err)
-	}
 	var updates []types.Update
-	for _, commonPrefix := range resp.CommonPrefixes {
-		var updateId int64
-		if _, err := fmt.Sscanf(*commonPrefix.Prefix, prefix+"%d/", &updateId); err == nil {
-			updates = append(updates, types.Update{
-				AppId:          appId,
-				Branch:         branch,
-				RuntimeVersion: runtimeVersion,
-				UpdateId:       strconv.FormatInt(updateId, 10),
-				CreatedAt:      helpers.NormalizeTimestampToDuration(updateId),
-			})
+	paginator := s3.NewListObjectsV2Paginator(s3Client, input)
+	for paginator.HasMorePages() {
+		resp, err := paginator.NextPage(context.TODO())
+		if err != nil {
+			return nil, fmt.Errorf("ListObjectsV2 error: %w", err)
+		}
+		for _, commonPrefix := range resp.CommonPrefixes {
+			var updateId int64
+			if _, err := fmt.Sscanf(*commonPrefix.Prefix, prefix+"%d/", &updateId); err == nil {
+				updates = append(updates, types.Update{
+					AppId:          appId,
+					Branch:         branch,
+					RuntimeVersion: runtimeVersion,
+					UpdateId:       strconv.FormatInt(updateId, 10),
+					CreatedAt:      helpers.NormalizeTimestampToDuration(updateId),
+				})
+			}
 		}
 	}
 	return updates, nil
@@ -182,7 +191,7 @@ func (b *S3Bucket) GetFile(update types.Update, assetPath string) (*types.Bucket
 
 	return &types.BucketFile{
 		Reader:    resp.Body,
-		CreatedAt: *resp.LastModified,
+		CreatedAt: awssdk.ToTime(resp.LastModified),
 	}, nil
 }
 

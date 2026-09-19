@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 func (b *LocalBucket) RetrieveMigrationHistory() ([]string, error) {
@@ -15,7 +16,10 @@ func (b *LocalBucket) RetrieveMigrationHistory() ([]string, error) {
 	migrationHistoryPath := filepath.Join(b.rootPath(), ".migrationhistory")
 	file, err := os.Open(migrationHistoryPath)
 	if err != nil {
-		return nil, nil
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
 	}
 	defer file.Close()
 	var migrations []string
@@ -46,6 +50,9 @@ func (b *LocalBucket) ApplyMigration(migrationId string) error {
 		}
 	}
 
+	if err := os.MkdirAll(b.rootPath(), 0o700); err != nil {
+		return err
+	}
 	file, err := os.OpenFile(migrationHistoryPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return fmt.Errorf("open .migrationhistory error: %w", err)
@@ -81,23 +88,15 @@ func (b *LocalBucket) RemoveMigrationFromHistory(migrationId string) error {
 		return nil
 	}
 
-	var newMigrations []string
+	var newMigrations strings.Builder
 	for _, id := range migrations {
 		if id != migrationId {
-			newMigrations = append(newMigrations, id)
+			newMigrations.WriteString(id + "\n")
 		}
 	}
 
-	file, err := os.OpenFile(migrationHistoryPath, os.O_TRUNC|os.O_WRONLY, 0644)
-	if err != nil {
-		return fmt.Errorf("open .migrationhistory error: %w", err)
-	}
-	defer file.Close()
-
-	for _, id := range newMigrations {
-		if _, err := file.WriteString(id + "\n"); err != nil {
-			return fmt.Errorf("write .migrationhistory error: %w", err)
-		}
+	if err := writeFileAtomically(migrationHistoryPath, strings.NewReader(newMigrations.String()), ""); err != nil {
+		return fmt.Errorf("write .migrationhistory error: %w", err)
 	}
 
 	return nil

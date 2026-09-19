@@ -1,13 +1,14 @@
 package bucket
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 )
 
-func (b *LocalBucket) GetInstanceID() (string, error) {
+func (b *LocalBucket) GetInstanceID(_ context.Context) (string, error) {
 	if b.BasePath == "" {
 		return "", errors.New("BasePath not set")
 	}
@@ -21,9 +22,12 @@ func (b *LocalBucket) GetInstanceID() (string, error) {
 	return strings.TrimSpace(string(content)), nil
 }
 
-func (b *LocalBucket) PersistInstanceID(id string) error {
+func (b *LocalBucket) PersistInstanceID(_ context.Context, id string) error {
 	if b.BasePath == "" {
 		return errors.New("BasePath not set")
+	}
+	if err := os.MkdirAll(b.rootPath(), 0o700); err != nil {
+		return err
 	}
 	return os.WriteFile(filepath.Join(b.rootPath(), ".instanceid"), []byte(id+"\n"), 0644)
 }

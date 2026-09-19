@@ -243,8 +243,8 @@ func TestBuildCacheHTTPRejectsForeignAndExpiredUploads(t *testing.T) {
 					_, err = service.Complete(ctx, owner.app, owner.identifier, id)
 					require.NoError(t, err)
 				}
-				serve := func(method string, handle http.HandlerFunc, app, identifier string, body *strings.Reader) *httptest.ResponseRecorder {
-					req := httptest.NewRequest(method, "/", body)
+				serve := func(ctx context.Context, method string, handle http.HandlerFunc, app, identifier string, body *strings.Reader) *httptest.ResponseRecorder {
+					req := httptest.NewRequestWithContext(ctx, method, "/", body)
 					req = mux.SetURLVars(req, map[string]string{"APP_ID": app, "UPLOAD_ID": id, "NAMESPACE": string(input.Namespace), "CACHE_KEY": input.Key})
 					req = req.WithContext(services.WithBuildIdentifier(req.Context(), identifier))
 					response := httptest.NewRecorder()
@@ -252,7 +252,7 @@ func TestBuildCacheHTTPRejectsForeignAndExpiredUploads(t *testing.T) {
 					return response
 				}
 				// The rightful owner can read published bytes, but not a pending upload.
-				response := serve(http.MethodGet, handler.Download, owner.app, owner.identifier, strings.NewReader(""))
+				response := serve(ctx, http.MethodGet, handler.Download, owner.app, owner.identifier, strings.NewReader(""))
 				if published {
 					require.Equal(t, http.StatusOK, response.Code, response.Body.String())
 					require.Equal(t, content, response.Body.String())
@@ -278,7 +278,7 @@ func TestBuildCacheHTTPRejectsForeignAndExpiredUploads(t *testing.T) {
 				} {
 					t.Run(operation.name, func(t *testing.T) {
 						body := strings.NewReader("replacement bytes")
-						response := serve(operation.method, operation.handle, scope.app, scope.identifier, body)
+						response := serve(ctx, operation.method, operation.handle, scope.app, scope.identifier, body)
 						require.Equal(t, http.StatusNotFound, response.Code, response.Body.String())
 						require.NotContains(t, response.Body.String(), content)
 						require.NotContains(t, response.Body.String(), input.SHA256)

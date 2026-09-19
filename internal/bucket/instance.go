@@ -1,6 +1,8 @@
 package bucket
 
+import "context"
+
 type InstanceStorage interface {
-	GetInstanceID() (string, error)
-	PersistInstanceID(id string) error
+	GetInstanceID(ctx context.Context) (string, error)
+	PersistInstanceID(ctx context.Context, id string) error
 }

@@ -14,6 +14,10 @@ const MAX_ARCHIVE_BYTES = 512 * 1024 * 1024;
 const MAX_EXTRACTED_BYTES = 1024 * 1024 * 1024;
 const TRANSFER_TIMEOUT = 120000;
 
+function transferTimeout(size: number): number {
+  return TRANSFER_TIMEOUT + (size / (1024 * 1024)) * 8000;
+}
+
 // These namespaces exchange directory snapshots as TAR archives.
 export type CacheArchiveNamespace = 'gradle' | 'ccache';
 
@@ -64,7 +68,7 @@ export async function restoreCacheArchive(archive: CacheArchive): Promise<boolea
   const controller = new AbortController();
   const timeout = setTimeout(() => {
     controller.abort();
-  }, TRANSFER_TIMEOUT);
+  }, transferTimeout(object.size));
   try {
     const response = await fetch(url, {
       headers: found.url ? {} : getAuthHeaders(retrieveCredentials()),
@@ -133,7 +137,7 @@ export async function saveCacheArchive(archive: CacheArchive): Promise<number> {
     const controller = new AbortController();
     const timeout = setTimeout(() => {
       controller.abort();
-    }, TRANSFER_TIMEOUT);
+    }, transferTimeout(content.size));
     const body = fs.createReadStream(file);
     try {
       const response = await fetch(url, {
