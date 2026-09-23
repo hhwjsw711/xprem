@@ -357,6 +357,13 @@ func TestRequestUploadUrlWithSampleUpdate(t *testing.T) {
 	}
 	require.NotNil(t, lastUpdate, "Expected non-nil")
 	assert.Equal(t, updateIdHeader, lastUpdate.UpdateId, "Expected update ID to match")
+	var markResponse struct {
+		UpdateUUID string `json:"updateUUID"`
+	}
+	require.NoError(t, json.NewDecoder(wMark.Body).Decode(&markResponse))
+	metadata, err := update.GetMetadata(*lastUpdate)
+	require.NoError(t, err)
+	assert.Equal(t, crypto.ConvertSHA256HashToUUID(metadata.ID), markResponse.UpdateUUID)
 }
 
 func TestRequestUploadUrlWithValidExpoSession(t *testing.T) {

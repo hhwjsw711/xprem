@@ -1038,7 +1038,7 @@ func TestMarkUpdateAsCheckedMapsUniqueViolationToRolloutConflict(t *testing.T) {
 	racingUpdate, err := h.updateRepo.CreateUpdateWithRollout(ctx, h.appId, 300, "main", "1", "ios", "abc123", "", 30, nil)
 	require.NoError(t, err)
 
-	err = h.deploymentService.MarkUpdateAsChecked(ctx, *racingUpdate, types.NormalUpdate)
+	_, err = h.deploymentService.MarkUpdateAsChecked(ctx, *racingUpdate, types.NormalUpdate)
 	assert.ErrorIs(t, err, ErrActiveRolloutBlocksPublish)
 }
 

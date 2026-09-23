@@ -33,6 +33,12 @@ import { confirmAsync } from '../lib/prompts';
 import { RateLimiter } from '../lib/rateLimiter';
 import { ensureRepoIsCleanAsync } from '../lib/repo';
 import { resolveRuntimeVersionAsync } from '../lib/runtimeVersion';
+import {
+  PublishedUpdateMetadata,
+  UPDATE_METADATA_FILE,
+  readUpdateUUID,
+  writeUpdateMetadata,
+} from '../lib/updateMetadata';
 import { resolveVcsClient } from '../lib/vcs';
 import { Platform, resolveWorkflowAsync } from '../lib/workflow';
 
@@ -106,6 +112,10 @@ export default class Publish extends Command {
         'Maximum number of asset uploads started per second. Accepts decimals (e.g. 1.5). Lower this if your storage provider rate-limits uploads.',
       default: '10',
     }),
+    emitMetadata: Flags.boolean({
+      description: `Emit "${UPDATE_METADATA_FILE}" in the output directory with the published update of each platform`,
+      default: false,
+    }),
   };
   private sanitizeFlags(flags: any): {
     platform: RequestedPlatform;
@@ -120,6 +130,7 @@ export default class Publish extends Command {
     dumpSourcemap: boolean;
     rolloutPercentage?: number;
     uploadRate: number;
+    emitMetadata: boolean;
   } {
     const uploadRate = Number(flags['upload-rate']);
     if (!Number.isFinite(uploadRate) || uploadRate <= 0) {
@@ -139,6 +150,7 @@ export default class Publish extends Command {
       dumpSourcemap: flags.dumpSourcemap,
       rolloutPercentage: flags['rollout-percentage'],
       uploadRate,
+      emitMetadata: flags.emitMetadata,
     };
   }
   public async run(): Promise<void> {
@@ -164,6 +176,7 @@ export default class Publish extends Command {
       dumpSourcemap,
       rolloutPercentage,
       uploadRate,
+      emitMetadata,
     } = this.sanitizeFlags(flags);
     if (!branch) {
       Log.error('Branch name is required');
@@ -501,6 +514,7 @@ export default class Publish extends Command {
     }
 
     const markAsFinishedSpinner = ora('🔗 Marking the updates as finished...').start();
+    const publishedUpdateUUIDs: Record<string, string | undefined> = {};
     const results = await Promise.all(
       uploadUrls.map(
         async ({
@@ -523,6 +537,7 @@ export default class Publish extends Command {
           });
           // If success and status code = 200
           if (response.ok) {
+            publishedUpdateUUIDs[platform] = await readUpdateUUID(response);
             Log.withInfo(`✅ Update ready for ${platform}`);
             // Announce only when the server echoed the percentage back: an old server
             // silently ignores the param and ships the update to 100% of devices.
@@ -588,6 +603,25 @@ export default class Publish extends Command {
         Log.withInfo(
           'ℹ️ Platform updates were published without grouping (publish groups require a server in control plane mode).'
         );
+      }
+      if (emitMetadata) {
+        const deployed = uploadUrls.filter((_, index) => results[index] === 'deployed');
+        if (deployed.some(({ platform: p }) => !publishedUpdateUUIDs[p])) {
+          Log.warn(
+            `⚠️ ${UPDATE_METADATA_FILE} was not written: the server did not return the update ids. Upgrade the server to use --emitMetadata.`
+          );
+        } else {
+          const metadata: PublishedUpdateMetadata[] = deployed.map(u => ({
+            id: publishedUpdateUUIDs[u.platform]!,
+            platform: u.platform,
+            runtimeVersion: u.runtimeVersion,
+            branch,
+            group: groupAcknowledged ? publishGroupId : undefined,
+            message: resolvedMessage,
+          }));
+          await writeUpdateMetadata(path.join(projectDir, outputDir), metadata);
+          Log.withInfo(`📝 ${UPDATE_METADATA_FILE} written to ${outputDir}`);
+        }
       }
       Log.withInfo('🔥 Your users will receive the latest update automatically!');
     }

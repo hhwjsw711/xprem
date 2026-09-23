@@ -194,24 +194,26 @@ func NewDeploymentService(branchService *BranchService, updateService *UpdateSer
 	}
 }
 
-func (s *DeploymentService) ProcessUploadedUpdate(ctx context.Context, params ProcessUpdateParams) error {
+// ProcessUploadedUpdate verifies and publishes an uploaded update, and returns
+// its manifest id (the value expo-updates exposes as Updates.updateId).
+func (s *DeploymentService) ProcessUploadedUpdate(ctx context.Context, params ProcessUpdateParams) (string, error) {
 
 	err := s.branchService.UpsertBranchAndRuntimeVersion(ctx, params.AppID, params.BranchName, params.RuntimeVersion)
 	if err != nil {
 		log.Printf("[RequestID: %s] Error upserting branch and runtime version: %v", params.RequestID, err)
-		return err
+		return "", err
 	}
 
 	currentUpdate, err := s.updateRepo.GetUpdate(ctx, params.AppID, params.BranchName, params.RuntimeVersion, params.UpdateID)
 	if err != nil {
 		log.Printf("[RequestID: %s] Error getting update: %v", params.RequestID, err)
-		return err
+		return "", err
 	}
 
 	mapping, err := s.updateRepo.GetUpdateAssetMapping(ctx, *currentUpdate)
 	if err != nil {
 		log.Printf("[RequestID: %s] Error getting asset mapping: %v", params.RequestID, err)
-		return err
+		return "", err
 	}
 	errorVerify := update2.VerifyUploadedUpdate(ctx, *currentUpdate, mapping)
 	if errorVerify != nil {
@@ -219,21 +221,21 @@ func (s *DeploymentService) ProcessUploadedUpdate(ctx context.Context, params Pr
 		err := s.bucket.DeleteUpdateFolder(params.AppID, params.BranchName, params.RuntimeVersion, params.UpdateID)
 		if err != nil {
 			log.Printf("[RequestID: %s] Error deleting update folder: %v", params.RequestID, err)
-			return err
+			return "", err
 		}
 		log.Printf("[RequestID: %s] Invalid update, folder deleted", params.RequestID)
-		return fmt.Errorf("%w: %s", ErrInvalidUpdate, errorVerify)
+		return "", fmt.Errorf("%w: %s", ErrInvalidUpdate, errorVerify)
 	}
 
-	err = s.MarkUpdateAsChecked(ctx, *currentUpdate, types.NormalUpdate)
+	updateUUID, err := s.MarkUpdateAsChecked(ctx, *currentUpdate, types.NormalUpdate)
 	if err != nil {
 		log.Printf("[RequestID: %s] Error marking update as checked: %v", params.RequestID, err)
-		return err
+		return "", err
 	}
 	log.Printf("[RequestID: %s] Update marked as checked", params.RequestID)
 	s.recordDeliveryEvent(ctx, auditlog.ActionUpdatePublished, *currentUpdate,
 		map[string]any{"platform": string(params.Platform)})
-	return nil
+	return updateUUID, nil
 }
 
 func getUpdateUUIDFromMetadata(update types.Update) string {
@@ -245,14 +247,16 @@ func getUpdateUUIDFromMetadata(update types.Update) string {
 	return updateUUID
 }
 
-func (s *DeploymentService) MarkUpdateAsChecked(ctx context.Context, update types.Update, updateType types.UpdateType) error {
+// MarkUpdateAsChecked publishes the update and returns its manifest id, empty
+// for a rollback.
+func (s *DeploymentService) MarkUpdateAsChecked(ctx context.Context, update types.Update, updateType types.UpdateType) (string, error) {
 	cache := cache.GetCache()
 	branchesCacheKey := dashboard.ComputeGetBranchesCacheKey(update.AppId)
 	channelsCacheKey := dashboard.ComputeGetChannelsCacheKey(update.AppId)
 	runTimeVersionsCacheKey := dashboard.ComputeGetRuntimeVersionsCacheKey(update.AppId, update.Branch)
 	storedMetadata, err := s.updateRepo.RetrieveUpdateStoredMetadata(ctx, update)
 	if err != nil || storedMetadata == nil {
-		return err
+		return "", err
 	}
 	var updateUUID string
 	if updateType == types.NormalUpdate {
@@ -260,7 +264,7 @@ func (s *DeploymentService) MarkUpdateAsChecked(ctx context.Context, update type
 		updateUUID = getUpdateUUIDFromMetadata(update)
 		err = s.updateRepo.StoreUpdateUUIDInMetadata(ctx, update, updateUUID)
 		if err != nil {
-			return err
+			return "", err
 		}
 	}
 	// Must happen before the cache invalidation below, or a concurrent
@@ -268,15 +272,15 @@ func (s *DeploymentService) MarkUpdateAsChecked(ctx context.Context, update type
 	err = s.updateRepo.MarkUpdateAsChecked(ctx, update)
 	if err != nil {
 		if database.IsUniqueViolation(err) {
-			return ErrActiveRolloutBlocksPublish
+			return "", ErrActiveRolloutBlocksPublish
 		}
 		if errors.Is(err, store.ErrPublishBlockedByActiveRollout) {
-			return ErrActiveRolloutBlocksPublish
+			return "", ErrActiveRolloutBlocksPublish
 		}
 		if errors.Is(err, store.ErrRolloutSupersededByNewerUpdate) {
-			return ErrRolloutSuperseded
+			return "", ErrRolloutSuperseded
 		}
-		return err
+		return "", err
 	}
 	cacheKeys := []string{
 		update2.ComputeLastUpdateCacheKey(update.AppId, update.Branch, update.RuntimeVersion, storedMetadata.Platform),
@@ -301,7 +305,7 @@ func (s *DeploymentService) MarkUpdateAsChecked(ctx context.Context, update type
 			}
 		}(update, storedMetadata.Platform)
 	}
-	return nil
+	return updateUUID, nil
 }
 
 func (s *DeploymentService) RequestUploadLocalFile(ctx context.Context, params RequestLocalFileUploadParams) error {
@@ -592,7 +596,7 @@ func (s *DeploymentService) createRollbackInternal(ctx context.Context, appId st
 	if rollback == nil {
 		return nil, fmt.Errorf("failed to create rollback: no update returned")
 	}
-	err = s.MarkUpdateAsChecked(ctx, *rollback, types.Rollback)
+	_, err = s.MarkUpdateAsChecked(ctx, *rollback, types.Rollback)
 	if err != nil {
 		return nil, err
 	}
@@ -680,7 +684,7 @@ func (s *DeploymentService) republishUpdateInternal(ctx context.Context, previou
 			return nil, fmt.Errorf("failed to store the republished update asset mapping: %w", err)
 		}
 	}
-	err = s.MarkUpdateAsChecked(ctx, *newUpdate, types.NormalUpdate)
+	_, err = s.MarkUpdateAsChecked(ctx, *newUpdate, types.NormalUpdate)
 	if err != nil {
 		return nil, err
 	}

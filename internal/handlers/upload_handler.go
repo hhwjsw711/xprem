@@ -97,6 +97,11 @@ func parsePublishGroupTarget(r *http.Request) (*string, error) {
 	return &normalized, nil
 }
 
+
+type markUpdateAsUploadedResponse struct {
+	UpdateUUID string `json:"updateUUID,omitempty"`
+}
+
 func (h *UploadHandler) MarkUpdateAsUploadedHandler(w http.ResponseWriter, r *http.Request) {
 	requestID := uuid.New().String()
 	vars := mux.Vars(r)
@@ -133,7 +138,7 @@ func (h *UploadHandler) MarkUpdateAsUploadedHandler(w http.ResponseWriter, r *ht
 		RuntimeVersion: runtimeVersion,
 		UpdateID:       updateId,
 	}
-	err = h.deploymentService.ProcessUploadedUpdate(r.Context(), params)
+	updateUUID, err := h.deploymentService.ProcessUploadedUpdate(r.Context(), params)
 	if err != nil {
 		if errors.Is(err, services.ErrUnauthorized) {
 			RenderCliAuthError(w, err)
@@ -162,8 +167,13 @@ func (h *UploadHandler) MarkUpdateAsUploadedHandler(w http.ResponseWriter, r *ht
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(markUpdateAsUploadedResponse{UpdateUUID: updateUUID}); err != nil {
+		log.Printf("[RequestID: %s] Error encoding response: %v", requestID, err)
+	}
 }
+
 
 func (h *UploadHandler) RequestUploadLocalFileHandler(w http.ResponseWriter, r *http.Request) {
 	requestID := uuid.New().String()

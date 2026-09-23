@@ -179,8 +179,10 @@ func TestPublishGroupRolloutActivatesEveryPlatform(t *testing.T) {
 	android, err := h.updateRepo.CreateUpdateWithRollout(ctx, h.appId, 200, "main", "1", "android", "abc123", "", 10, &group)
 	require.NoError(t, err)
 
-	require.NoError(t, h.deploymentService.MarkUpdateAsChecked(ctx, *ios, types.NormalUpdate))
-	require.NoError(t, h.deploymentService.MarkUpdateAsChecked(ctx, *android, types.NormalUpdate))
+	_, err = h.deploymentService.MarkUpdateAsChecked(ctx, *ios, types.NormalUpdate)
+	require.NoError(t, err)
+	_, err = h.deploymentService.MarkUpdateAsChecked(ctx, *android, types.NormalUpdate)
+	require.NoError(t, err)
 
 	active, err := h.updateRepo.HasActiveRolloutUpdate(ctx, h.appId, "main", "1")
 	require.NoError(t, err)
