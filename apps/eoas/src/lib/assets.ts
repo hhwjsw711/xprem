@@ -117,6 +117,18 @@ async function digestExportFile(exportRoot: string, relativePath: string): Promi
   return await digestFile(absolutePath);
 }
 
+// The server rejects file names containing backslashes, but metadata.json is
+// written by `expo export`, and on Windows the asset paths it records use the
+// platform separator (e.g. "assets\0a328cd9..."). Every path that leaves the
+// CLI for the server is normalized to forward slashes; local file access
+// keeps working on both platforms because Node's path functions accept
+// forward slashes on Windows. `name` is derived with path.basename before
+// normalization on purpose: on Windows it splits on both separators, so it
+// stays correct for Windows-authored paths and is a no-op for POSIX ones.
+function toServerPath(relativePath: string): string {
+  return relativePath.replace(/\\/g, '/');
+}
+
 export async function computeFilesRequests(
   projectDir: string,
   outputDir: string,
@@ -152,7 +164,7 @@ export async function computeFilesRequests(
     }
     const bundle = metadata.fileMetadata[platform].bundle;
     pending.push({
-      path: bundle,
+      path: toServerPath(bundle),
       name: path.basename(bundle),
       ext: 'hbc',
       platform,
@@ -160,7 +172,7 @@ export async function computeFilesRequests(
     });
     for (const asset of metadata.fileMetadata[platform].assets) {
       pending.push({
-        path: asset.path,
+        path: toServerPath(asset.path),
         name: path.basename(asset.path),
         ext: asset.ext,
         platform,
