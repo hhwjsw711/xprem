@@ -372,6 +372,15 @@ describe('publish against an honest server response', () => {
 
     await runPublish('all');
 
+    // Both platforms are named on the export: with no --platform, expo export
+    // bundles web too.
+    const exportArgs = vi.mocked(spawnAsync).mock.calls.map(([, args]) => args as string[]);
+    const exportCall = exportArgs.find(args => args.includes('export'));
+    expect(exportCall).toEqual(
+      expect.arrayContaining(['--platform', 'ios', '--platform', 'android'])
+    );
+    expect(exportCall).not.toContain('web');
+
     const uploadRequests = requestUploadUrlCalls();
     expect(uploadRequests).toHaveLength(1);
     expect(new URL(uploadRequests[0]).searchParams.get('platform')).toBe('android');

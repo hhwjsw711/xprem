@@ -95,6 +95,9 @@ func firstValue(values map[string][]string, key string) string {
 // surface asking for a series has to derive it the same way; the caller never
 // picks it, so a wide window cannot ask for a million points.
 func Bucket(window time.Duration) time.Duration {
+	// The dashboard snaps the window start down to a boundary and keeps the end
+	// live, so "last 24 hours" arrives a few minutes over 24h.
+	window = window.Truncate(time.Hour)
 	switch {
 	case window <= 6*time.Hour:
 		return 5 * time.Minute

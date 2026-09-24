@@ -294,7 +294,11 @@ export default class Publish extends Command {
     }
     const exportSpinner = ora('📦 Exporting project files...').start();
     try {
-      const specifiedPlatform = platform === RequestedPlatform.All ? [] : ['--platform', platform];
+      // Named explicitly: without --platform, expo export also bundles web.
+      const specifiedPlatform =
+        platform === RequestedPlatform.All
+          ? ['--platform', RequestedPlatform.Ios, '--platform', RequestedPlatform.Android]
+          : ['--platform', platform];
       const sourcemapArgs = dumpSourcemap ? ['--dump-sourcemap'] : [];
       const [runnerCommand, runnerArgs] = splitPackageRunner(packageRunner);
       const { stdout } = await spawnAsync(

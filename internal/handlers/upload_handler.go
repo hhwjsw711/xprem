@@ -97,7 +97,6 @@ func parsePublishGroupTarget(r *http.Request) (*string, error) {
 	return &normalized, nil
 }
 
-
 type markUpdateAsUploadedResponse struct {
 	UpdateUUID string `json:"updateUUID,omitempty"`
 }
@@ -173,7 +172,6 @@ func (h *UploadHandler) MarkUpdateAsUploadedHandler(w http.ResponseWriter, r *ht
 		log.Printf("[RequestID: %s] Error encoding response: %v", requestID, err)
 	}
 }
-
 
 func (h *UploadHandler) RequestUploadLocalFileHandler(w http.ResponseWriter, r *http.Request) {
 	requestID := uuid.New().String()
