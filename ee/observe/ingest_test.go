@@ -436,16 +436,16 @@ const launchMetricsFixture = `{
     ]},
     "scopeMetrics": [{"scope": {"name": "expo-observe"}, "metrics": [
       {"name": "expo.app_startup.cold_launch_time", "unit": "s", "gauge": {"dataPoints": [
-        {"timeUnixNano": 1767960490000000000, "asDouble": 1.2}
+        {"timeUnixNano": 1767960489000000000, "asDouble": 1.2}
       ]}},
       {"name": "expo.app_startup.ttr", "unit": "s", "gauge": {"dataPoints": [
-        {"timeUnixNano": 1767960491000000000, "asDouble": 0.4}
+        {"timeUnixNano": 1767960490000000000, "asDouble": 0.4}
       ]}}
     ]}]
   }]
 }`
 
-func TestHandleMetricsLaunchMetricResolvesRuntimeFailure(t *testing.T) {
+func TestHandleMetricsFirstRenderResolvesRuntimeFailure(t *testing.T) {
 	mutator := &recordingMutator{}
 	handler := NewIngestHandler(identity.NewService(mutator), nil, nil, nil)
 	recorder := serveIngest(handler, http.MethodPost, "/observe/app-1/p/v1/metrics", []byte(launchMetricsFixture))

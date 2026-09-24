@@ -347,12 +347,13 @@ const (
 	AppStartedEventName = "app_started"
 )
 
-// The SDK emits a launch metric per process start, and tti when the app
-// calls Observe.markInteractive, each with the running update.
+// Metrics the SDK emits once the JS bundle has rendered: ttr from the root
+// component's first render, tti from Observe.markInteractive. The launch-time
+// metrics fire from the native app delegate before any JS runs, so they say
+// nothing about the update.
 var launchMetricNames = map[string]bool{
-	"expo.app_startup.cold_launch_time": true,
-	"expo.app_startup.warm_launch_time": true,
-	"expo.app_startup.tti":              true,
+	"expo.app_startup.ttr": true,
+	"expo.app_startup.tti": true,
 }
 
 type runtimeHealthState uint8
