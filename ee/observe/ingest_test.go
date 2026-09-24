@@ -50,6 +50,7 @@ type recordedRuntimeSignal struct {
 	kind       string
 	device     string
 	updateID   string
+	message    string
 	occurredAt time.Time
 }
 
@@ -72,12 +73,12 @@ func (m *recordingMutator) RecordUpdateFailures(_ context.Context, _ string, eas
 	return nil
 }
 
-func (m *recordingMutator) RecordRuntimeFailure(_ context.Context, _ string, easClientID string, updateID string, _ string, occurredAt time.Time) error {
+func (m *recordingMutator) RecordRuntimeFailure(_ context.Context, _ string, easClientID string, updateID string, fatalError string, occurredAt time.Time) error {
 	if m.failFailures {
 		return fmt.Errorf("database is down")
 	}
 	m.runtime = append(m.runtime, recordedRuntimeSignal{
-		kind: "failure", device: easClientID, updateID: updateID, occurredAt: occurredAt,
+		kind: "failure", device: easClientID, updateID: updateID, message: fatalError, occurredAt: occurredAt,
 	})
 	return nil
 }
@@ -424,6 +425,7 @@ func TestHandleLogsFatalSDKExceptionIsARuntimeFailure(t *testing.T) {
 		kind:       "failure",
 		device:     "8b9c1fe0-93b3-4b3a-8c1d-2f4a5e6b7c8d",
 		updateID:   "b16fa250-1b5f-42e9-a012-3f4a5e6b7c8d",
+		message:    "undefined is not a function",
 		occurredAt: time.Unix(1767960489, 0).UTC(),
 	}}, mutator.runtime)
 }
@@ -439,7 +441,9 @@ const launchMetricsFixture = `{
         {"timeUnixNano": 1767960489000000000, "asDouble": 1.2}
       ]}},
       {"name": "expo.app_startup.ttr", "unit": "s", "gauge": {"dataPoints": [
-        {"timeUnixNano": 1767960490000000000, "asDouble": 0.4}
+        {"timeUnixNano": 1767960490000000000, "asDouble": 0.4, "attributes": [
+          {"key": "expo.update_id", "value": {"stringValue": "11111111-2222-4333-8444-555555555555"}}
+        ]}
       ]}}
     ]}]
   }]

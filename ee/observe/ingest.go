@@ -438,7 +438,10 @@ func groupRuntimeHealthSignals(logs []LogRow, metrics []MetricRow) map[runtimeHe
 	}
 	for _, row := range metrics {
 		if launchMetricNames[row.MetricName] {
-			add(row.Envelope, runtimeHealthSignal{state: runtimeHealthy, occurredAt: row.Timestamp.UTC()})
+			// The update that rendered is the resource's, never a point's override.
+			envelope := row.Envelope
+			envelope.UpdateID = row.RunningUpdateID
+			add(envelope, runtimeHealthSignal{state: runtimeHealthy, occurredAt: row.Timestamp.UTC()})
 		}
 	}
 	return grouped

@@ -57,6 +57,9 @@ type MetricRow struct {
 	Value        float64
 	RouteName    string
 	CustomParams string
+	// RunningUpdateID is the resource's update, kept apart from Envelope.UpdateID
+	// which a point may override with the update it just downloaded. Not stored.
+	RunningUpdateID string
 }
 
 // LogRow mirrors the observe_logs table.
@@ -242,11 +245,12 @@ func FlattenMetrics(appID string, batch MetricBatch, now time.Time) []MetricRow 
 			envelope.Attributes = marshalAttributes(point.Attributes, metricEnvelopeKeys)
 			envelope.Timestamp = clampTimestamp(point.TimeUnixNano, now)
 			row := MetricRow{
-				Envelope:     envelope,
-				MetricName:   truncateRunes(point.MetricName, maxMetricNameRunes),
-				Value:        point.Value,
-				RouteName:    truncateRunes(str(routeNameKey), maxRouteNameRunes),
-				CustomParams: truncateRunes(str(customParamsKey), maxCustomParamsRunes),
+				Envelope:        envelope,
+				RunningUpdateID: resourceEnvelope.UpdateID,
+				MetricName:      truncateRunes(point.MetricName, maxMetricNameRunes),
+				Value:           point.Value,
+				RouteName:       truncateRunes(str(routeNameKey), maxRouteNameRunes),
+				CustomParams:    truncateRunes(str(customParamsKey), maxCustomParamsRunes),
 			}
 			// The raw nano, not the clamped time, goes into the hash so a retried batch hashes identically.
 			hashParts := []string{
