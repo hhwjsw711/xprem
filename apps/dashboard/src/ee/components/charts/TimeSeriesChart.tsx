@@ -391,10 +391,10 @@ export const TimeSeriesChart = ({
                       height={Math.max(0, height - margin.top - margin.bottom)}
                     />
                   </clipPath>
-                  {series.map(item => (
+                  {series.map((item, index) => (
                     <linearGradient
                       key={item.key}
-                      id={`${gradientPrefix}-${item.key}`}
+                      id={`${gradientPrefix}-${index}`}
                       x1="0"
                       x2="0"
                       y1="0"
@@ -418,7 +418,7 @@ export const TimeSeriesChart = ({
                   hideAxisLine
                   hideTicks
                 />
-                {series.map(item => (
+                {series.map((item, index) => (
                   <AreaSeries
                     key={item.key}
                     dataKey={item.key}
@@ -428,7 +428,7 @@ export const TimeSeriesChart = ({
                     // The gradient under the curve reads well for a single
                     // series and turns into an opaque pile as soon as several
                     // overlap, hiding the very comparison the chart is for.
-                    fill={series.length > 1 ? 'transparent' : `url(#${gradientPrefix}-${item.key})`}
+                    fill={series.length > 1 ? 'transparent' : `url(#${gradientPrefix}-${index})`}
                     // The ceiling sits on the 98th percentile so one outlier
                     // cannot flatten the comparison; clipping keeps whatever
                     // sits above it inside the plot instead of drawing over

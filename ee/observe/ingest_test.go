@@ -386,6 +386,84 @@ func TestHandleLogsRuntimeRecoveryUsesEventOrder(t *testing.T) {
 	}, mutator.runtime)
 }
 
+const sdkExceptionLogsFixture = `{
+  "resourceLogs": [{
+    "resource": {"attributes": [
+      {"key": "expo.eas_client.id", "value": {"stringValue": "8b9c1fe0-93b3-4b3a-8c1d-2f4a5e6b7c8d"}},
+      {"key": "expo.app.updates.id", "value": {"stringValue": "b16fa250-1b5f-42e9-a012-3f4a5e6b7c8d"}}
+    ]},
+    "scopeLogs": [{"scope": {"name": "expo-observe"}, "logRecords": [
+      {
+        "timeUnixNano": 1767960489000000000,
+        "severityNumber": 21,
+        "attributes": [
+          {"key": "event.name", "value": {"stringValue": "js.exception"}},
+          {"key": "expo.error.is_fatal", "value": {"boolValue": true}},
+          {"key": "exception.message", "value": {"stringValue": "undefined is not a function"}}
+        ]
+      },
+      {
+        "timeUnixNano": 1767960490000000000,
+        "severityNumber": 17,
+        "attributes": [
+          {"key": "event.name", "value": {"stringValue": "js.exception"}},
+          {"key": "expo.error.is_fatal", "value": {"boolValue": false}},
+          {"key": "exception.message", "value": {"stringValue": "handled"}}
+        ]
+      }
+    ]}]
+  }]
+}`
+
+func TestHandleLogsFatalSDKExceptionIsARuntimeFailure(t *testing.T) {
+	mutator := &recordingMutator{}
+	handler := NewIngestHandler(identity.NewService(mutator), nil, nil, nil)
+	recorder := serveIngest(handler, http.MethodPost, logsPath, []byte(sdkExceptionLogsFixture))
+	require.Equal(t, http.StatusNoContent, recorder.Code)
+	require.Equal(t, []recordedRuntimeSignal{{
+		kind:       "failure",
+		device:     "8b9c1fe0-93b3-4b3a-8c1d-2f4a5e6b7c8d",
+		updateID:   "b16fa250-1b5f-42e9-a012-3f4a5e6b7c8d",
+		occurredAt: time.Unix(1767960489, 0).UTC(),
+	}}, mutator.runtime)
+}
+
+const launchMetricsFixture = `{
+  "resourceMetrics": [{
+    "resource": {"attributes": [
+      {"key": "expo.eas_client.id", "value": {"stringValue": "8b9c1fe0-93b3-4b3a-8c1d-2f4a5e6b7c8d"}},
+      {"key": "expo.app.updates.id", "value": {"stringValue": "b16fa250-1b5f-42e9-a012-3f4a5e6b7c8d"}}
+    ]},
+    "scopeMetrics": [{"scope": {"name": "expo-observe"}, "metrics": [
+      {"name": "expo.app_startup.cold_launch_time", "unit": "s", "gauge": {"dataPoints": [
+        {"timeUnixNano": 1767960490000000000, "asDouble": 1.2}
+      ]}},
+      {"name": "expo.app_startup.ttr", "unit": "s", "gauge": {"dataPoints": [
+        {"timeUnixNano": 1767960491000000000, "asDouble": 0.4}
+      ]}}
+    ]}]
+  }]
+}`
+
+func TestHandleMetricsLaunchMetricResolvesRuntimeFailure(t *testing.T) {
+	mutator := &recordingMutator{}
+	handler := NewIngestHandler(identity.NewService(mutator), nil, nil, nil)
+	recorder := serveIngest(handler, http.MethodPost, "/observe/app-1/p/v1/metrics", []byte(launchMetricsFixture))
+	require.Equal(t, http.StatusNoContent, recorder.Code)
+	require.Equal(t, []recordedRuntimeSignal{{
+		kind:       "recovered",
+		device:     "8b9c1fe0-93b3-4b3a-8c1d-2f4a5e6b7c8d",
+		updateID:   "b16fa250-1b5f-42e9-a012-3f4a5e6b7c8d",
+		occurredAt: time.Unix(1767960490, 0).UTC(),
+	}}, mutator.runtime)
+}
+
+func TestCrashMessagePrefersSDKExceptionMessage(t *testing.T) {
+	require.Equal(t, "boom", crashMessage(`{"exception.message":"boom","message":"legacy"}`))
+	require.Equal(t, "legacy", crashMessage(`{"message":"legacy"}`))
+	require.Equal(t, "", crashMessage(`{"exception.message":3}`))
+}
+
 func TestNormalizeRuntimeHealthSignalsOrdersAndCompacts(t *testing.T) {
 	firstCrash := time.Unix(1767960489, 0).UTC()
 	tiedAt := firstCrash.Add(time.Second)
