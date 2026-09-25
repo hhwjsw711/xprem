@@ -52,10 +52,7 @@ describe('computeFilesRequests path normalization', () => {
   });
 
   it('normalizes Windows-authored asset paths to forward slashes', async () => {
-    // metadata.json written by `expo export` on Windows records asset paths
-    // with the platform separator. The server rejects file names containing
-    // backslashes, so every path that reaches it must use forward slashes.
-    // digestFile is mocked, so the export files do not need to exist.
+    // Windows `expo export` writes backslash asset paths, which the server rejects; digestFile is mocked so files need not exist.
     const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), 'eoas-assets-'));
     try {
       const outputDir = 'dist';

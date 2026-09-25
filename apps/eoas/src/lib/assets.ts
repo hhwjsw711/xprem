@@ -117,14 +117,7 @@ async function digestExportFile(exportRoot: string, relativePath: string): Promi
   return await digestFile(absolutePath);
 }
 
-// The server rejects file names containing backslashes, but metadata.json is
-// written by `expo export`, and on Windows the asset paths it records use the
-// platform separator (e.g. "assets\0a328cd9..."). Every path that leaves the
-// CLI for the server is normalized to forward slashes; local file access
-// keeps working on both platforms because Node's path functions accept
-// forward slashes on Windows. `name` is derived with path.basename before
-// normalization on purpose: on Windows it splits on both separators, so it
-// stays correct for Windows-authored paths and is a no-op for POSIX ones.
+// Normalize backslashes (written by `expo export` on Windows) to the forward slashes the server requires.
 function toServerPath(relativePath: string): string {
   return relativePath.replace(/\\/g, '/');
 }
