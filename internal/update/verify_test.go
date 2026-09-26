@@ -94,3 +94,14 @@ func TestVerifyUploadedUpdate_MissingExpoConfigIsTolerated(t *testing.T) {
 
 	assert.NoError(t, VerifyUploadedUpdate(context.Background(), u, nil))
 }
+
+func TestVerifyUploadedUpdate_TrailingExpoConfigDataFails(t *testing.T) {
+	base := setupLocalBucket(t)
+	u := types.Update{AppId: "app", Branch: "main", RuntimeVersion: "1", UpdateId: "105"}
+	writeFolderUpdate(t, base, u, true)
+	writeUpdateFile(t, base, u, "expoConfig.json", `{"name":"demo"} garbage`)
+
+	err := VerifyUploadedUpdate(context.Background(), u, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid expoConfig.json")
+}

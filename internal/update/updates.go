@@ -170,9 +170,18 @@ func GetExpoConfig(ctx context.Context, update types.Update) (json.RawMessage, e
 		return json.RawMessage("{}"), nil
 	}
 	defer resp.Reader.Close()
+	decoder := json.NewDecoder(resp.Reader)
 	var expoConfig json.RawMessage
-	err = json.NewDecoder(resp.Reader).Decode(&expoConfig)
-	if err != nil {
+	if err := decoder.Decode(&expoConfig); err != nil {
+		return nil, err
+	}
+	// Reject anything after the first JSON value: the publish flow writes a
+	// single document, and trailing data would otherwise be served as-is.
+	var trailing json.RawMessage
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return nil, fmt.Errorf("trailing content after expoConfig.json")
+		}
 		return nil, err
 	}
 	return expoConfig, nil
