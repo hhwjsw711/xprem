@@ -53,6 +53,16 @@ func ComputeManifestAssetCacheKey(appId string, update types.Update, assetPath s
 	return cache2.Key("asset", version.Version, appId, update.Branch, update.RuntimeVersion, update.UpdateId, assetPath)
 }
 
+// ErrInvalidExpoConfig marks an expoConfig.json whose *content* is invalid.
+// Storage or read failures are deliberately NOT wrapped with this sentinel:
+// the publish path treats them as transient instead of deleting the folder.
+var ErrInvalidExpoConfig = errors.New("invalid expoConfig.json")
+
+// ErrExpoConfigUnreadable marks a transient storage/read failure while
+// reading expoConfig.json: the folder must survive it so a re-publish can
+// retry instead of silently losing the uploaded files.
+var ErrExpoConfigUnreadable = errors.New("expoConfig.json could not be read")
+
 // VerifyUploadedUpdate reports whether every file the update announces actually
 // made it to storage. mapping is nil for an update published before the files
 // moved to cas/, whose assets are then looked for in the update folder.
@@ -67,7 +77,12 @@ func VerifyUploadedUpdate(ctx context.Context, update types.Update, mapping *typ
 	// Fail fast on a malformed expoConfig.json: a publish with one would
 	// otherwise succeed and then 500 every device poll that follows.
 	if _, errConfig := GetExpoConfig(ctx, update); errConfig != nil {
-		return fmt.Errorf("invalid expoConfig.json: %w", errConfig)
+		if !errors.Is(errConfig, ErrInvalidExpoConfig) {
+			// A storage/read failure is not a content problem: wrapping it
+			// marks it transient so the caller keeps the folder.
+			return fmt.Errorf("%w: %v", ErrExpoConfigUnreadable, errConfig)
+		}
+		return errConfig
 	}
 	if mapping == nil {
 		return verifyFolderUploaded(ctx, update, metadata)
@@ -173,16 +188,16 @@ func GetExpoConfig(ctx context.Context, update types.Update) (json.RawMessage, e
 	decoder := json.NewDecoder(resp.Reader)
 	var expoConfig json.RawMessage
 	if err := decoder.Decode(&expoConfig); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %v", ErrInvalidExpoConfig, err)
 	}
 	// Reject anything after the first JSON value: the publish flow writes a
 	// single document, and trailing data would otherwise be served as-is.
 	var trailing json.RawMessage
 	if err := decoder.Decode(&trailing); err != io.EOF {
 		if err == nil {
-			return nil, fmt.Errorf("trailing content after expoConfig.json")
+			return nil, fmt.Errorf("%w: trailing content after the JSON document", ErrInvalidExpoConfig)
 		}
-		return nil, err
+		return nil, fmt.Errorf("%w: %v", ErrInvalidExpoConfig, err)
 	}
 	return expoConfig, nil
 }
