@@ -77,11 +77,6 @@ func VerifyUploadedUpdate(ctx context.Context, update types.Update, mapping *typ
 	// Fail fast on a malformed expoConfig.json: a publish with one would
 	// otherwise succeed and then 500 every device poll that follows.
 	if _, errConfig := GetExpoConfig(ctx, update); errConfig != nil {
-		if !errors.Is(errConfig, ErrInvalidExpoConfig) {
-			// A storage/read failure is not a content problem: wrapping it
-			// marks it transient so the caller keeps the folder.
-			return fmt.Errorf("%w: %v", ErrExpoConfigUnreadable, errConfig)
-		}
 		return errConfig
 	}
 	if mapping == nil {
@@ -188,7 +183,7 @@ func GetExpoConfig(ctx context.Context, update types.Update) (json.RawMessage, e
 	decoder := json.NewDecoder(resp.Reader)
 	var expoConfig json.RawMessage
 	if err := decoder.Decode(&expoConfig); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrInvalidExpoConfig, err)
+		return nil, classifyExpoConfigError(err)
 	}
 	// Reject anything after the first JSON value: the publish flow writes a
 	// single document, and trailing data would otherwise be served as-is.
@@ -197,9 +192,21 @@ func GetExpoConfig(ctx context.Context, update types.Update) (json.RawMessage, e
 		if err == nil {
 			return nil, fmt.Errorf("%w: trailing content after the JSON document", ErrInvalidExpoConfig)
 		}
-		return nil, fmt.Errorf("%w: %v", ErrInvalidExpoConfig, err)
+		return nil, classifyExpoConfigError(err)
 	}
 	return expoConfig, nil
+}
+
+// classifyExpoConfigError tells a decode failure of expoConfig.json apart:
+// json.Decoder returns *json.SyntaxError for malformed content and passes
+// reader failures through untouched, so only the former is invalid content;
+// anything else (including an empty file) is treated as unreadable.
+func classifyExpoConfigError(err error) error {
+	var syntaxErr *json.SyntaxError
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.As(err, &syntaxErr) {
+		return fmt.Errorf("%w: %v", ErrInvalidExpoConfig, err)
+	}
+	return fmt.Errorf("%w: %v", ErrExpoConfigUnreadable, err)
 }
 
 func GetMetadata(ctx context.Context, update types.Update) (types.UpdateMetadata, error) {
