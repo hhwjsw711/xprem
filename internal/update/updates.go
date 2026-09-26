@@ -204,9 +204,9 @@ func GetExpoConfig(ctx context.Context, update types.Update) (json.RawMessage, e
 func classifyExpoConfigError(err error) error {
 	var syntaxErr *json.SyntaxError
 	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.As(err, &syntaxErr) {
-		return fmt.Errorf("%w: %v", ErrInvalidExpoConfig, err)
+		return fmt.Errorf("%w: %w", ErrInvalidExpoConfig, err)
 	}
-	return fmt.Errorf("%w: %v", ErrExpoConfigUnreadable, err)
+	return fmt.Errorf("%w: %w", ErrExpoConfigUnreadable, err)
 }
 
 func GetMetadata(ctx context.Context, update types.Update) (types.UpdateMetadata, error) {
