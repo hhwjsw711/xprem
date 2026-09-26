@@ -64,6 +64,11 @@ func VerifyUploadedUpdate(ctx context.Context, update types.Update, mapping *typ
 	if metadata.MetadataJSON.FileMetadata.IOS.Bundle == "" && metadata.MetadataJSON.FileMetadata.Android.Bundle == "" {
 		return fmt.Errorf("missing bundle path in metadata")
 	}
+	// Fail fast on a malformed expoConfig.json: a publish with one would
+	// otherwise succeed and then 500 every device poll that follows.
+	if _, errConfig := GetExpoConfig(ctx, update); errConfig != nil {
+		return fmt.Errorf("invalid expoConfig.json: %w", errConfig)
+	}
 	if mapping == nil {
 		return verifyFolderUploaded(ctx, update, metadata)
 	}
