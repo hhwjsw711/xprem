@@ -173,7 +173,7 @@ func GetExpoConfig(ctx context.Context, update types.Update) (json.RawMessage, e
 	resolvedBucket := bucket.GetBucket()
 	resp, err := resolvedBucket.UpdateStore.GetFile(ctx, update, "expoConfig.json")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %w", ErrExpoConfigUnreadable, err)
 	}
 	if resp == nil {
 		// Return empty JSON if the file is not found
